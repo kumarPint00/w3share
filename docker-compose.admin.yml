@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # Contract Admin API Service
+  contract-admin-service:
+    build:
+      context: ./contract-admin-service
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./contract-admin-service/logs:/app/logs
+    env_file:
+      - ./contract-admin-service/.env
+    restart: unless-stopped
+
+  # Contract Admin UI
+  contract-admin-ui:
+    build:
+      context: ./contract-admin-ui
+      dockerfile: Dockerfile
+    ports:
+      - "3002:80"
+    depends_on:
+      - contract-admin-service
+    restart: unless-stopped

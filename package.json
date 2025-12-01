@@ -1,0 +1,14 @@
+{
+  "name": "dogefull-tools",
+  "private": true,
+  "scripts": {
+    "strip:comments": "node tools/strip_js_line_comments.js"
+  },
+  "devDependencies": {
+    "fast-glob": "^3.3.2"
+  },
+  "dependencies": {
+    "ethers": "^6.15.0",
+    "node-fetch": "^3.3.2"
+  }
+}

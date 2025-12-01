@@ -1,0 +1,79 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+/// Stores one-time nonces for SIWE authentication
+model WalletNonce {
+  id        String   @id @default(uuid())
+  nonce     String   @unique
+  address   String   @db.VarChar(42)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+/// Represents a draft or locked on-chain gift pack
+model GiftPack {
+  id            String      @id @default(uuid())
+  senderAddress String      @db.VarChar(42)
+  message       String?     @db.Text
+  expiry        DateTime    @default(now())
+  status        GiftStatus  @default(DRAFT)
+  giftIdOnChain Int?        @unique
+  giftCode      String?     @unique
+  items         GiftItem[]
+  claimTasks    ClaimTask[]
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+}
+
+enum GiftStatus {
+  DRAFT
+  LOCKED
+  CLAIMED
+  REFUNDED
+}
+
+/// Individual assets within a GiftPack
+model GiftItem {
+  id         String    @id @default(uuid())
+  giftPack   GiftPack  @relation(fields: [giftPackId], references: [id], onDelete: Cascade)
+  giftPackId String
+  type       AssetType
+  contract   String
+  tokenId    String?
+  amount     String?
+  createdAt  DateTime  @default(now())
+}
+
+enum AssetType {
+  ERC20
+  ERC721
+}
+
+/// Tracks gasless claim tasks via Gelato or similar
+model ClaimTask {
+  id          String     @id @default(uuid())
+  giftPack    GiftPack   @relation(fields: [giftPackId], references: [id], onDelete: Cascade)
+  giftPackId  String
+  taskId      String     @unique
+  status      TaskStatus @default(PENDING)
+  submittedAt DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+enum TaskStatus {
+  PENDING
+  CLAIMED
+  FAILED
+}
+
+/// [Optional] Configuration table for front-end
+model ConfigItem {
+  key   String @id
+  value String
+}

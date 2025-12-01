@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "public"."GiftPack" ALTER COLUMN "expiry" SET DEFAULT CURRENT_TIMESTAMP;

@@ -60,16 +60,21 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
   const network = await provider.getNetwork();
   const chainIdNum = Number(network.chainId);
 
-  if (chainIdNum !== 11155111 && chainIdNum !== 1) {
+  console.log('fetchWalletTokens Debug:', { address, chainIdNum });
 
+  if (chainIdNum !== 11155111 && chainIdNum !== 1) {
+    console.log('Unsupported chain ID:', chainIdNum);
     return [];
   }
   // First try backend endpoint which can return the actual tokens present on the chain (including Sepolia addresses)
   try {
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+    console.log('Fetching from backend:', `${backendUrl}/assets/erc20?address=${encodeURIComponent(address)}`);
     const res = await fetch(`${backendUrl}/assets/erc20?address=${encodeURIComponent(address)}`);
+    console.log('Backend response status:', res.status);
     if (res.ok) {
       const body: Array<any> = await res.json();
+      console.log('Backend returned tokens:', body.length, body);
       // attempt to fetch price map for listed tokens (coingecko ids from our ERC20_LIST)
       const ids = ['ethereum', ...Array.from(new Set(ERC20_LIST.map(t => t.coingeckoId)))];
       const priceMap = await getUsdPrices(ids);
@@ -78,27 +83,41 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
       const ethEntry = await getEthEntry(provider, address, ethUsd);
 
       const erc20sFromBackend: Token[] = body.map((b: any) => {
-        const bal = Number(b.balance ?? 0);
         const decimals = Number(b.decimals ?? 18);
         const chainId = Number(b.chainId ?? chainIdNum);
-        const coingeckoId = (ERC20_LIST.find(t => t.address.toLowerCase() === (b.contractAddress || '').toLowerCase())?.coingeckoId) || undefined;
+        
+        // Convert hex balance to proper decimal
+        let balance = 0;
+        if (b.balance && b.balance !== '0x0') {
+          const rawBalance = BigInt(b.balance);
+          balance = Number(rawBalance) / Math.pow(10, decimals);
+        }
+        
+        // Find matching token in static list for metadata
+        const staticToken = ERC20_LIST.find(t => 
+          t.address.toLowerCase() === (b.contractAddress || '').toLowerCase()
+        );
+        
+        const coingeckoId = staticToken?.coingeckoId;
         const price = coingeckoId ? (priceMap?.[coingeckoId]?.usd ?? 0) : 0;
+        
         return {
           id: `${(b.contractAddress || 'native').toLowerCase()}-${chainId}`,
-          name: b.name || b.symbol || 'Token',
-          symbol: b.symbol || 'TKN',
+          name: staticToken?.name || b.name || b.symbol || 'Unknown Token',
+          symbol: staticToken?.symbol || b.symbol || 'TKN',
           address: (b.contractAddress || '').toLowerCase(),
           decimals,
           chainId,
-          balance: bal,
-          usd: bal * (price || 0),
-          image: b.logoURI || '/gift-icon.png',
+          balance: balance,
+          usd: balance * (price || 0),
+          image: staticToken?.image || b.logoURI || '/tokens/default.png',
           type: 'ERC20',
           priceUsd: price || 0,
         } as Token;
-      }).filter(t => t.balance > 0);
+      });
 
       const list = [ethEntry, ...erc20sFromBackend].sort((a, b) => (b.usd || 0) - (a.usd || 0));
+      console.log('Final token list from backend:', list.length, list.map(t => ({ symbol: t.symbol, balance: t.balance })));
       return list;
     }
   } catch (e) {

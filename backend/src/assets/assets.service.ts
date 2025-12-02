@@ -23,11 +23,20 @@ export class AssetsService {
     return Promise.all(
       resp.tokenBalances.map(async (tb) => {
         const meta = await this.alchemy.core.getTokenMetadata(tb.contractAddress);
+        // Convert hex balance to decimal
+        const rawBalance = BigInt(tb.tokenBalance || '0x0');
+        const decimals = meta.decimals || 18;
+        const balance = Number(rawBalance) / Math.pow(10, decimals);
+        
         return {
           contract: tb.contractAddress,
-          symbol: meta.symbol,
-          decimals: meta.decimals,
-          balance: tb.tokenBalance,
+          contractAddress: tb.contractAddress,
+          symbol: meta.symbol || 'UNKNOWN',
+          name: meta.name || meta.symbol || 'Unknown Token',
+          decimals: decimals,
+          balance: tb.tokenBalance, // Keep raw hex for frontend conversion
+          balanceFormatted: balance, // Provide formatted version
+          logoURI: meta.logo || `/tokens/${meta.symbol?.toLowerCase()}.png`,
         };
       }),
     );

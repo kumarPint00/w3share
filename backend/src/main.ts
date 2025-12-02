@@ -18,7 +18,7 @@ async function bootstrap() {
     process.env.CORS_ORIGINS ||
     process.env.FRONTEND_URL ||
     process.env.NEXT_PUBLIC_APP_URL ||
-    'http://localhost:3000' ||  'https://doge.aeologic.in';
+    'http://localhost:3000' ||  'https://doge.aeologic.in' || 'https://w3share.vercel.app';
 
   const allowedOrigins = rawOrigins
     .split(',')

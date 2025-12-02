@@ -28,6 +28,14 @@ export default function TokenAddCard({ tokens, loading, onAdd }: Props) {
   const selected = tokens.find((t) => t.id === tokenId) || null;
   const amountNum = Number(amount);
 
+  // Debug logging
+  console.log('TokenAddCard Debug:', {
+    tokenId,
+    selected: selected ? { id: selected.id, symbol: selected.symbol } : null,
+    tokensCount: tokens.length,
+    tokenIds: tokens.slice(0, 3).map(t => ({ id: t.id, symbol: t.symbol }))
+  });
+
   const validateDecimals = (v: string) => {
     if (!v) return null;
     const s = v.trim();
@@ -61,6 +69,7 @@ export default function TokenAddCard({ tokens, loading, onAdd }: Props) {
             <CircularProgress size={28} />
           ) : (
             <TokenPickerV2
+              tokens={tokens}
               selected={selected}
               onAdd={(t) => setTokenId(t.id)}
               onRemove={() => setTokenId('')}

@@ -264,8 +264,6 @@ export class GiftpacksService {
       data: {
         giftIdOnChain: onChainGiftId,
         status: 'LOCKED',
-        lockedAt: new Date(),
-        transactionHash: txHash,
       },
       include: { items: true }
     });

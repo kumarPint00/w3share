@@ -22,6 +22,7 @@ import { Token } from '@/types/token';
 import useWalletTokens from '@/lib/hooks/useWalletToken';
 import { apiService, walletLogin } from '@/lib/api';
 import { ethers } from 'ethers';
+import { useDirectContractInteraction } from '@/lib/hooks/useDirectContractInteraction';
 import Image from 'next/image';
 
 const CreatePack: React.FC = () => {
@@ -38,6 +39,7 @@ const CreatePack: React.FC = () => {
   const { provider, address, connect } = useWallet();
   const { nfts, loading: nftsLoading } = useWalletNfts(address);
   const { tokens, loading: tokLoading } = useWalletTokens(provider, address);
+  const { approveToken, lockGiftOnChain, checkTokenApproval, checkEthBalance, isLoading: contractLoading, error: contractError } = useDirectContractInteraction();
 
   const handleAddToken = (token: Token & { amount: number }) => {
 
@@ -153,23 +155,77 @@ const CreatePack: React.FC = () => {
   };
 
   const handleConfirmAndLock = async () => {
-    if (!packId) return;
+    if (!packId || !code) return;
+    
     try {
       await ensureAuth();
       setLockBusy(true);
 
+      // Step 1: Validate the gift pack
       const validation = await apiService.validateGiftForLocking(packId);
       if (!validation.isValid) throw new Error(validation.errors.join(', '));
 
-      const lockRes = await apiService.lockGiftPack(packId);
-      setToast({ open: true, msg: 'Gift locked successfully!', severity: 'success' });
-      router.push(`/gift/create/success?giftCode=${lockRes.giftCode}`);
+      // Step 2: Get gift pack details to handle token approval and locking
+      const pack = await apiService.getGiftPack(packId);
+      const firstItem = pack.items[0];
+      
+      if (firstItem && firstItem.type === 'ERC20') {
+        console.log('Gift pack item details:', {
+          contract: firstItem.contract,
+          amount: firstItem.amount,
+          type: typeof firstItem.amount,
+          rawAmount: (firstItem as any).rawAmount
+        });
+        
+        // Handle ERC20 token - need frontend approval and locking
+        
+        // First check if user has enough ETH for gas fees
+        setToast({ open: true, msg: 'Checking gas fee balance...', severity: 'info' });
+        const ethCheck = await checkEthBalance();
+        if (!ethCheck.hasEnoughForGas) {
+          throw new Error(`Insufficient ETH for gas fees. You have ${ethCheck.balanceEth.toFixed(4)} ETH, need at least 0.001 ETH`);
+        }
+
+        setToast({ open: true, msg: 'Please approve token in your wallet...', severity: 'info' });
+        
+        // Use rawAmount if available (user input), otherwise use amount (wei format)
+        const amountToUse = (firstItem as any).rawAmount || firstItem.amount.toString();
+        
+        // Approve token
+        await approveToken(firstItem.contract, amountToUse);
+        setToast({ open: true, msg: 'Token approved! Locking gift...', severity: 'info' });
+        
+        // Lock gift on blockchain directly
+        const lockResult = await lockGiftOnChain(
+          firstItem.contract,
+          amountToUse,
+          pack.message || 'A gift for you!',
+          code,
+          7
+        );
+        
+        if (lockResult.success) {
+          // Notify backend about successful locking
+          await apiService.updateGiftPackWithOnChainId(packId, lockResult.giftId, lockResult.txHash);
+        }
+        
+        setToast({ open: true, msg: 'Gift locked successfully!', severity: 'success' });
+        router.push(`/gift/create/success?giftCode=${code}&giftId=${lockResult.giftId}`);
+      } else {
+        // Fallback to backend for non-ERC20 or if direct contract interaction fails
+        const lockRes = await apiService.lockGiftPack(packId);
+        setToast({ open: true, msg: 'Gift locked successfully!', severity: 'success' });
+        router.push(`/gift/create/success?giftCode=${lockRes.giftCode}`);
+      }
     } catch (e: any) {
+      console.error('Lock gift error:', e);
       setToast({ open: true, msg: e?.message || 'Failed to lock gift on blockchain', severity: 'error' });
     } finally {
       setLockBusy(false);
     }
   };
+
+
 
   const selectedNftIds = state.items
     .filter((i) => i.type === 'NFT')
@@ -633,8 +689,8 @@ const CreatePack: React.FC = () => {
                 message={msg}
                 secretCode={code}
                 onConfirm={handleConfirmAndLock}
-                disabled={lockBusy}
-                isLoading={lockBusy}
+                disabled={lockBusy || contractLoading}
+                isLoading={lockBusy || contractLoading}
               />
             </Paper>
           )}

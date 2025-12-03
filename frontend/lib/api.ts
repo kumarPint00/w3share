@@ -339,6 +339,17 @@ class ApiService {
     });
   }
 
+  async getGiftPack(id: string): Promise<GiftPack> {
+    return this.request(`/giftpacks/${id}`);
+  }
+
+  async updateGiftPackWithOnChainId(id: string, onChainGiftId: number, txHash: string): Promise<GiftPack> {
+    return this.request(`/giftpacks/${id}/on-chain`, {
+      method: 'PATCH',
+      body: JSON.stringify({ onChainGiftId, txHash }),
+    });
+  }
+
   async removeItemFromGiftPack(id: string, itemId: string): Promise<GiftPack> {
     return this.request(`/giftpacks/${id}/items/${itemId}`, {
       method: 'DELETE',

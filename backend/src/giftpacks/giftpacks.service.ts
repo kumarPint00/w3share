@@ -249,6 +249,30 @@ export class GiftpacksService {
     return { isValid: errors.length === 0, errors };
   }
 
+  async updateWithOnChainId(id: string, onChainGiftId: number, txHash: string) {
+    const pack = await this.prisma.giftPack.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+
+    if (!pack) {
+      throw new NotFoundException('Gift pack not found');
+    }
+
+    const updated = await this.prisma.giftPack.update({
+      where: { id },
+      data: {
+        giftIdOnChain: onChainGiftId,
+        status: 'LOCKED',
+        lockedAt: new Date(),
+        transactionHash: txHash,
+      },
+      include: { items: true }
+    });
+
+    return updated;
+  }
+
   async lockGiftPack(id: string) {
     this.throwIfSmartContractDisabled('lockGiftPack');
 

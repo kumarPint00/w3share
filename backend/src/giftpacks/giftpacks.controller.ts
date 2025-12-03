@@ -90,6 +90,18 @@ export class GiftpacksController {
 
   @UseGuards(WalletAuthGuard)
   @ApiBearerAuth()
+  @Patch(':id/on-chain')
+  @ApiOperation({ summary: 'Update gift pack with on-chain gift ID after frontend locking' })
+  @ApiParam({ name: 'id', description: 'GiftPack ID' })
+  updateWithOnChainId(
+    @Param('id') id: string,
+    @Body() data: { onChainGiftId: number; txHash: string }
+  ) {
+    return this.service.updateWithOnChainId(id, data.onChainGiftId, data.txHash);
+  }
+
+  @UseGuards(WalletAuthGuard)
+  @ApiBearerAuth()
   @Get('on-chain/:giftId/status')
   @ApiOperation({ summary: 'Get on-chain gift status' })
   @ApiParam({ name: 'giftId', description: 'On-chain gift ID' })

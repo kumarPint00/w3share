@@ -41,6 +41,9 @@ const CreatePack: React.FC = () => {
   const { tokens, loading: tokLoading } = useWalletTokens(provider, address);
   const { approveToken, lockGiftOnChain, checkTokenApproval, checkEthBalance, isLoading: contractLoading, error: contractError } = useDirectContractInteraction();
 
+  // Debug: log tokens from useWalletTokens
+  console.log('CreatePack - useWalletTokens result:', { tokensCount: tokens.length, loading: tokLoading, provider: !!provider, address });
+
   const handleAddToken = (token: Token & { amount: number }) => {
 
     const balance = Number(token.balance || 0);
@@ -176,6 +179,16 @@ const CreatePack: React.FC = () => {
           type: typeof firstItem.amount,
           rawAmount: (firstItem as any).rawAmount
         });
+        
+        // Check if it's native ETH (address is "native" or similar)
+        const isNativeEth = !firstItem.contract || 
+                           firstItem.contract.toLowerCase() === 'native' || 
+                           firstItem.contract === '0x0000000000000000000000000000000000000000';
+        
+        if (isNativeEth) {
+          // Native ETH cannot be locked via ERC20 flow
+          throw new Error('Native ETH gifting is not supported yet. Please select an ERC20 token like USDC, LINK, or WETH.');
+        }
         
         // Handle ERC20 token - need frontend approval and locking
         

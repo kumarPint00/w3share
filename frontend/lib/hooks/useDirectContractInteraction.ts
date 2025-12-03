@@ -57,6 +57,15 @@ export function useDirectContractInteraction() {
 
   const approveToken = async (tokenAddress: string, amount: string) => {
     if (!provider || !address) throw new Error('Wallet not connected');
+    if (!ESCROW_ADDRESS) throw new Error('Escrow contract address not configured');
+    
+    // Validate token address
+    if (!tokenAddress || 
+        tokenAddress.toLowerCase() === 'native' || 
+        tokenAddress === '0x0000000000000000000000000000000000000000' ||
+        !ethers.isAddress(tokenAddress)) {
+      throw new Error('Invalid token address for approval');
+    }
     
     setIsLoading(true);
     setError(null);
@@ -135,6 +144,15 @@ export function useDirectContractInteraction() {
       if (!ethCheck.hasEnoughForGas) {
         throw new Error(`Insufficient ETH for gas fees. You have ${ethCheck.balanceEth.toFixed(4)} ETH, need at least 0.001 ETH`);
       }
+      
+      // Validate token address
+      if (!tokenAddress || 
+          tokenAddress.toLowerCase() === 'native' || 
+          tokenAddress === '0x0000000000000000000000000000000000000000' ||
+          !ethers.isAddress(tokenAddress)) {
+        throw new Error('Invalid token address. Native ETH is not supported for direct locking.');
+      }
+      
       const signer = await provider.getSigner();
       const escrowContract = new Contract(ESCROW_ADDRESS, ESCROW_ABI, signer);
       

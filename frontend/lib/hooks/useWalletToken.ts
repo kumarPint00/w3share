@@ -60,21 +60,16 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
   const network = await provider.getNetwork();
   const chainIdNum = Number(network.chainId);
 
-  console.log('fetchWalletTokens Debug:', { address, chainIdNum });
-
   if (chainIdNum !== 11155111 && chainIdNum !== 1) {
-    console.log('Unsupported chain ID:', chainIdNum);
+
     return [];
   }
   // First try backend endpoint which can return the actual tokens present on the chain (including Sepolia addresses)
   try {
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    console.log('Fetching from backend:', `${backendUrl}/assets/erc20?address=${encodeURIComponent(address)}`);
     const res = await fetch(`${backendUrl}/assets/erc20?address=${encodeURIComponent(address)}`);
-    console.log('Backend response status:', res.status);
     if (res.ok) {
       const body: Array<any> = await res.json();
-      console.log('Backend returned tokens:', body.length, body);
       // attempt to fetch price map for listed tokens (coingecko ids from our ERC20_LIST)
       const ids = ['ethereum', ...Array.from(new Set(ERC20_LIST.map(t => t.coingeckoId)))];
       const priceMap = await getUsdPrices(ids);
@@ -117,7 +112,6 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
       });
 
       const list = [ethEntry, ...erc20sFromBackend].sort((a, b) => (b.usd || 0) - (a.usd || 0));
-      console.log('Final token list from backend:', list.length, list.map(t => ({ symbol: t.symbol, balance: t.balance })));
       return list;
     }
   } catch (e) {

@@ -1,0 +1,19 @@
+/* Token icon styling - Add this to your global CSS */
+.token-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: linear-gradient(45deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 12px;
+}
+
+.token-usdc { background: #2775CA; }
+.token-link { background: #375BD2; }
+.token-weth { background: #627EEA; }
+.token-dai { background: #F4B731; }
+.token-eth { background: #627EEA; }

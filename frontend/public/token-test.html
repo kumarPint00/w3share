@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Token Test for Address</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js"></script>
+</head>
+<body>
+    <h2>Token Test for Address: 0xb8552a57ca4fa5fe2f14f32199dba62ea8276c08</h2>
+    <div id="results"></div>
+
+    <script>
+        const TEST_ADDRESS = "0xb8552a57ca4fa5fe2f14f32199dba62ea8276c08";
+        const BACKEND_URL = "http://192.168.1.3:4000";
+        const results = document.getElementById('results');
+
+        // Static token list (same as frontend)
+        const ERC20_LIST = [
+            {
+                symbol: 'USDC',
+                name: 'USD Coin',
+                address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+                decimals: 6,
+                chainId: 1,
+            },
+            {
+                symbol: 'DAI',
+                name: 'Dai',
+                address: '0x6B175474E89094C44Da98b954EedeAC495271d0F',
+                decimals: 18,
+                chainId: 1,
+            },
+            {
+                symbol: 'LINK',
+                name: 'Chainlink',
+                address: '0x514910771AF9Ca656af840dff83E8264EcF986CA',
+                decimals: 18,
+                chainId: 1,
+            },
+            {
+                symbol: 'WETH',
+                name: 'Wrapped Ether',
+                address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+                decimals: 18,
+                chainId: 1,
+            },
+            // Sepolia tokens
+            {
+                symbol: 'USDC',
+                name: 'USD Coin (Sepolia)',
+                address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238',
+                decimals: 6,
+                chainId: 11155111,
+            },
+            {
+                symbol: 'LINK',
+                name: 'Chainlink (Sepolia)',
+                address: '0x779877A7B0D9E8603169DdbD7836e478b4624789',
+                decimals: 18,
+                chainId: 11155111,
+            },
+            {
+                symbol: 'WETH',
+                name: 'Wrapped Ether (Sepolia)',
+                address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14',
+                decimals: 18,
+                chainId: 11155111,
+            },
+        ];
+
+        async function testBackendTokens() {
+            results.innerHTML += '<h3>1. Testing Backend API</h3>';
+            
+            try {
+                const response = await fetch(`${BACKEND_URL}/assets/erc20?address=${TEST_ADDRESS}`);
+                if (response.ok) {
+                    const tokens = await response.json();
+                    results.innerHTML += `<p><strong>Backend Response:</strong> Found ${tokens.length} tokens</p>`;
+                    results.innerHTML += `<pre>${JSON.stringify(tokens, null, 2)}</pre>`;
+                } else {
+                    results.innerHTML += `<p style="color: red">Backend Error: ${response.status} ${response.statusText}</p>`;
+                }
+            } catch (error) {
+                results.innerHTML += `<p style="color: red">Backend Request Failed: ${error.message}</p>`;
+            }
+        }
+
+        async function testWalletConnection() {
+            results.innerHTML += '<h3>2. Testing Wallet Connection</h3>';
+            
+            if (typeof window.ethereum !== 'undefined') {
+                try {
+                    await window.ethereum.request({ method: 'eth_requestAccounts' });
+                    const provider = new ethers.providers.Web3Provider(window.ethereum);
+                    const network = await provider.getNetwork();
+                    const signer = provider.getSigner();
+                    const address = await signer.getAddress();
+                    
+                    results.innerHTML += `<p><strong>Connected Address:</strong> ${address}</p>`;
+                    results.innerHTML += `<p><strong>Network:</strong> ${network.name} (Chain ID: ${network.chainId})</p>`;
+                    
+                    // Test ETH balance
+                    const ethBalance = await provider.getBalance(address);
+                    results.innerHTML += `<p><strong>ETH Balance:</strong> ${ethers.utils.formatEther(ethBalance)}</p>`;
+                    
+                    // Test some ERC20 tokens
+                    results.innerHTML += '<h4>Testing ERC20 Token Balances:</h4>';
+                    const relevantTokens = ERC20_LIST.filter(token => 
+                        !token.chainId || token.chainId === network.chainId
+                    );
+                    
+                    for (const token of relevantTokens.slice(0, 3)) { // Test first 3 tokens
+                        try {
+                            const contract = new ethers.Contract(
+                                token.address,
+                                ['function balanceOf(address) view returns (uint256)'],
+                                provider
+                            );
+                            const balance = await contract.balanceOf(address);
+                            const formattedBalance = ethers.utils.formatUnits(balance, token.decimals);
+                            results.innerHTML += `<p>${token.symbol}: ${formattedBalance}</p>`;
+                        } catch (error) {
+                            results.innerHTML += `<p style="color: orange">${token.symbol}: Error - ${error.message}</p>`;
+                        }
+                    }
+                    
+                } catch (error) {
+                    results.innerHTML += `<p style="color: red">Wallet Error: ${error.message}</p>`;
+                }
+            } else {
+                results.innerHTML += '<p style="color: red">No wallet detected (MetaMask not installed)</p>';
+            }
+        }
+
+        async function testStaticTokenList() {
+            results.innerHTML += '<h3>3. Static Token List</h3>';
+            results.innerHTML += `<p>Available tokens: ${ERC20_LIST.length}</p>`;
+            ERC20_LIST.forEach(token => {
+                results.innerHTML += `<p>${token.symbol} (${token.name}) - Chain ${token.chainId || 'Any'}</p>`;
+            });
+        }
+
+        // Run tests
+        async function runAllTests() {
+            results.innerHTML = '<h2>Running Tests...</h2>';
+            await testBackendTokens();
+            await testStaticTokenList();
+            await testWalletConnection();
+            results.innerHTML += '<h3>✅ Tests Complete!</h3>';
+        }
+
+        // Auto-run tests when page loads
+        window.onload = runAllTests;
+    </script>
+</body>
+</html>

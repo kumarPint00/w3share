@@ -39,7 +39,7 @@ const CreatePack: React.FC = () => {
   const { provider, address, connect } = useWallet();
   const { nfts, loading: nftsLoading } = useWalletNfts(address);
   const { tokens, loading: tokLoading } = useWalletTokens(provider, address);
-  const { approveToken, lockGiftOnChain, checkTokenApproval, checkEthBalance, isLoading: contractLoading, error: contractError } = useDirectContractInteraction();
+  const { approveToken, lockGiftOnChain, checkTokenApproval, checkEthBalance, isAvailable: isContractAvailable, isLoading: contractLoading, error: contractError } = useDirectContractInteraction();
 
   // Debug: log tokens from useWalletTokens
   console.log('CreatePack - useWalletTokens result:', { tokensCount: tokens.length, loading: tokLoading, provider: !!provider, address });
@@ -172,7 +172,8 @@ const CreatePack: React.FC = () => {
       const pack = await apiService.getGiftPack(packId);
       const firstItem = pack.items[0];
       
-      if (firstItem && firstItem.type === 'ERC20') {
+      // Check if direct contract interaction is available
+      if (firstItem && firstItem.type === 'ERC20' && isContractAvailable()) {
         console.log('Gift pack item details:', {
           contract: firstItem.contract,
           amount: firstItem.amount,

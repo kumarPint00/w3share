@@ -28,8 +28,6 @@ export default function ReadyToSendCard({
   disabled = false,
   isLoading = false,
 }: Props) {
-  const firstToken = items.find((i) => i.type === 'ERC20');
-  const firstNft = items.find((i) => i.type === 'NFT');
   const totalUsd = items.reduce((s, i) => s + (typeof i.usd === 'number' ? i.usd : 0), 0);
 
 
@@ -41,7 +39,7 @@ export default function ReadyToSendCard({
   return (
     <Paper sx={{ p: { xs: 4, md: 6 }, borderRadius: 4, textAlign: 'center' }}>
       <Typography fontWeight={700} mb={1}>
-        Item Added to Gift Pack
+        {items.length === 1 ? 'Item Added to Gift Pack' : `${items.length} Items Added to Gift Pack`}
       </Typography>
 
       <Stack
@@ -55,29 +53,24 @@ export default function ReadyToSendCard({
           ${typeof totalUsd === 'number' ? totalUsd.toFixed(2) : '0.00'}
         </Typography>
 
-        {firstToken && (
-          <>
-            <Divider orientation="vertical" flexItem />
-            <Stack direction="row" spacing={1} alignItems="center">
-              <Avatar src={firstToken.image} sx={{ width: 28, height: 28 }} />
+        <Divider orientation="vertical" flexItem />
+
+        {/* Show all items in a compact list */}
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: 'wrap', gap: 1 }}>
+          {items.map((item, idx) => (
+            <Stack key={idx} direction="row" spacing={0.5} alignItems="center">
+              <Avatar src={item.image} sx={{ width: 28, height: 28 }} />
               <Box>
                 <Typography fontSize={14} fontWeight={600}>
-                  {firstToken.symbol}
+                  {item.symbol}
                 </Typography>
                 <Typography fontSize={12} color="text.secondary">
-                  {formatAmount(firstToken.amount)} &nbsp;${typeof firstToken.usd === 'number' ? firstToken.usd.toFixed(2) : '0.00'}
+                  {formatAmount(item.amount)} &nbsp;${typeof item.usd === 'number' ? item.usd.toFixed(2) : '0.00'}
                 </Typography>
               </Box>
             </Stack>
-          </>
-        )}
-
-        {firstNft && (
-          <>
-            <Divider orientation="vertical" flexItem />
-            <Avatar src={firstNft.image} sx={{ width: 36, height: 36 }} />
-          </>
-        )}
+          ))}
+        </Stack>
       </Stack>
 
       <Typography fontWeight={700} mb={1}>

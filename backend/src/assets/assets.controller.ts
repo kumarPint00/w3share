@@ -18,6 +18,7 @@ export class AssetsController {
   @Get('erc20')
   @ApiOperation({ summary: 'Get ERC-20 token balances for a wallet' })
   @ApiQuery({ name: 'address', required: true, example: '0xBbA2be6c53…' })
+  @ApiQuery({ name: 'chainId', required: false, example: '11155111', description: 'Chain ID (1 for mainnet, 11155111 for Sepolia)' })
   @ApiOkResponse({
     description: 'Array of token balances',
     schema: {
@@ -31,8 +32,8 @@ export class AssetsController {
       ],
     },
   })
-  async erc20(@Query('address') address: string) {
-    return this.assets.getErc20Balances(address);
+  async erc20(@Query('address') address: string, @Query('chainId') chainId?: string) {
+    return this.assets.getErc20Balances(address, chainId ? Number(chainId) : 11155111);
   }
 
   /* ---------- NFTs ---------- */
@@ -40,6 +41,7 @@ export class AssetsController {
   @ApiOperation({ summary: 'Get NFTs owned by a wallet' })
   @ApiQuery({ name: 'address', required: true, example: '0xBbA2be6c53…' })
   @ApiQuery({ name: 'pageKey', required: false })
+  @ApiQuery({ name: 'chainId', required: false, example: '11155111', description: 'Chain ID (1 for mainnet, 11155111 for Sepolia)' })
   @ApiOkResponse({
     schema: {
       example: {
@@ -55,8 +57,27 @@ export class AssetsController {
       },
     },
   })
-  async nft(@Query('address') address: string, @Query('pageKey') pageKey?: string) {
-    return this.assets.getNfts(address, pageKey);
+  async nft(@Query('address') address: string, @Query('pageKey') pageKey?: string, @Query('chainId') chainId?: string) {
+    return this.assets.getNfts(address, pageKey, chainId ? Number(chainId) : 11155111);
+  }
+
+  /* ---------- Supported Networks ---------- */
+  @Get('supported-networks')
+  @ApiOperation({ summary: 'Get list of supported blockchain networks' })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        networks: [
+          { chainId: 1, name: 'Ethereum Mainnet', type: 'mainnet' },
+          { chainId: 11155111, name: 'Ethereum Sepolia', type: 'testnet' },
+          { chainId: 137, name: 'Polygon Mainnet', type: 'mainnet' },
+          { chainId: 80001, name: 'Polygon Mumbai', type: 'testnet' },
+        ],
+      },
+    },
+  })
+  getSupportedNetworks() {
+    return this.assets.getSupportedNetworks();
   }
 
   /* ---------- allow-list ---------- */

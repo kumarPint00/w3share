@@ -25,6 +25,8 @@ export default function TokenAddCard({ tokens, loading, onAdd }: Props) {
   const [amountError, setAmountError] = useState<string | null>(null);
   const { address, connect } = useWallet();
 
+  console.log('[TokenAddCard] Received props:', { tokensCount: tokens.length, loading, tokens: tokens.slice(0, 5).map(t => ({ symbol: t.symbol, id: t.id })) });
+
   const selected = tokens.find((t) => t.id === tokenId) || null;
   const amountNum = Number(amount);
 

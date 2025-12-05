@@ -17,12 +17,17 @@ const ESCROW_ABI = [
   'event GiftLocked(uint256 indexed giftId, address indexed sender, uint8 assetType, address tokenAddress, uint256 tokenId, uint256 amount, uint256 expiryTimestamp)',
 ];
 
-const ESCROW_ADDRESS = process.env.NEXT_PUBLIC_GIFT_ESCROW_ADDRESS;
+const ESCROW_ADDRESS = process.env.NEXT_PUBLIC_GIFT_ESCROW_ADDRESS || null;
 
 export function useDirectContractInteraction() {
   const { provider, address } = useWallet();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Check if escrow address is configured
+  const isAvailable = () => {
+    return !!ESCROW_ADDRESS && ESCROW_ADDRESS !== 'undefined';
+  };
 
   const checkTokenApproval = async (tokenAddress: string, amount: string) => {
     if (!provider || !address) throw new Error('Wallet not connected');
@@ -56,8 +61,10 @@ export function useDirectContractInteraction() {
   };
 
   const approveToken = async (tokenAddress: string, amount: string) => {
+    if (!isAvailable()) {
+      throw new Error('Escrow contract not configured - using backend flow');
+    }
     if (!provider || !address) throw new Error('Wallet not connected');
-    if (!ESCROW_ADDRESS) throw new Error('Escrow contract address not configured');
     
     // Validate token address
     if (!tokenAddress || 
@@ -132,8 +139,10 @@ export function useDirectContractInteraction() {
     giftCode: string,
     expiryDays: number = 7
   ) => {
+    if (!isAvailable()) {
+      throw new Error('Escrow contract not configured - using backend flow');
+    }
     if (!provider || !address) throw new Error('Wallet not connected');
-    if (!ESCROW_ADDRESS) throw new Error('Escrow contract address not configured');
     
     setIsLoading(true);
     setError(null);
@@ -258,6 +267,7 @@ export function useDirectContractInteraction() {
     lockGiftOnChain,
     getTokenBalance,
     checkEthBalance,
+    isAvailable,
     isLoading,
     error
   };

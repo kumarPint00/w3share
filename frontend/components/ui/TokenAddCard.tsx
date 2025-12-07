@@ -42,10 +42,28 @@ export default function TokenAddCard({ tokens, loading, onAdd }: Props) {
     return null;
   };
 
+  const validateBalance = (amount: number, balance: number): string | null => {
+    if (!selected) return null;
+    if (amount <= 0) return 'Amount must be greater than 0';
+    if (amount > balance) {
+      return `Insufficient balance. Max available: ${balance.toFixed(selected.decimals)}`;
+    }
+    return null;
+  };
+
   const handleAdd = () => {
-    const err = validateDecimals(amount);
-    setAmountError(err);
-    if (err) return;
+    const decimalErr = validateDecimals(amount);
+    if (decimalErr) {
+      setAmountError(decimalErr);
+      return;
+    }
+    
+    const balanceErr = validateBalance(amountNum, selected?.balance || 0);
+    if (balanceErr) {
+      setAmountError(balanceErr);
+      return;
+    }
+    
     if (!selected || !amountNum) return;
     onAdd({ ...selected, amount: amountNum, rawAmount: amount });
     setTokenId('');
@@ -175,7 +193,7 @@ export default function TokenAddCard({ tokens, loading, onAdd }: Props) {
               color: '#ffffff',
             },
           }}
-          disabled={!selected || !amountNum || !!amountError}
+          disabled={!selected || !amountNum || !!amountError || (selected && amountNum > (selected.balance || 0))}
           onClick={handleAdd}
         >
           Add Item

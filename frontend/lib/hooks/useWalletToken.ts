@@ -67,8 +67,25 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
   // First try backend endpoint which can return the actual tokens present on the chain (including Sepolia addresses)
   try {
     const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-    const res = await fetch(`${backendUrl}/assets/erc20?address=${encodeURIComponent(address)}&chainId=${chainIdNum}`);
-    console.log('[useWalletTokens] Backend fetch:', { url: `${backendUrl}/assets/erc20?address=${address}&chainId=${chainIdNum}`, status: res.status });
+    const fetchUrl = `${backendUrl}/assets/erc20?address=${encodeURIComponent(address)}&chainId=${chainIdNum}`;
+    console.log('[useWalletTokens] Backend fetch starting:', { url: fetchUrl, chainId: chainIdNum });
+    
+    const res = await fetch(fetchUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      cache: 'no-store',
+    });
+    
+    console.log('[useWalletTokens] Backend fetch response:', { url: fetchUrl, status: res.status, statusText: res.statusText });
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.warn('[useWalletTokens] Backend request failed:', { status: res.status, statusText: res.statusText, error: errorText });
+    }
+    
     if (res.ok) {
       const body: Array<any> = await res.json();
       console.log('[useWalletTokens] Backend response:', { count: body.length, tokens: body });
@@ -117,12 +134,14 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
       console.log('[useWalletTokens] Final token list:', { count: list.length, tokens: list.map(t => ({ symbol: t.symbol, balance: t.balance, id: t.id })) });
       return list;
     }
-  } catch (e) {
+    } catch (e) {
     // fallback to client-side static list scanning
-    console.warn('Backend token fetch failed, falling back to static list', e);
-  }
-
-  // Fallback: use the static ERC20_LIST (mainnet addresses) where possible
+    console.error('[useWalletTokens] Backend token fetch failed, falling back to static list:', {
+      error: e instanceof Error ? e.message : String(e),
+      chainId: chainIdNum,
+      address: address.substring(0, 10) + '...',
+    });
+  }  // Fallback: use the static ERC20_LIST (mainnet addresses) where possible
   const ids = ['ethereum', ...Array.from(new Set(ERC20_LIST.map(t => t.coingeckoId)))];
   const priceMap = await getUsdPrices(ids);
   const ethUsd = priceMap?.ethereum?.usd ?? 0;

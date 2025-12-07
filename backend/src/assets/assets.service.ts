@@ -85,29 +85,66 @@ export class AssetsService {
     if (!isAddress(address)) {
       throw new HttpException('Invalid Ethereum address', HttpStatus.BAD_REQUEST);
     }
-    const alchemy = this.getAlchemy(chainId);
-    const resp = await alchemy.core.getTokenBalances(address);
-    return Promise.all(
-      resp.tokenBalances.map(async (tb) => {
-        const meta = await alchemy.core.getTokenMetadata(tb.contractAddress);
-        // Convert hex balance to decimal
-        const rawBalance = BigInt(tb.tokenBalance || '0x0');
-        const decimals = meta.decimals || 18;
-        const balance = Number(rawBalance) / Math.pow(10, decimals);
-        
-        return {
-          contract: tb.contractAddress,
-          contractAddress: tb.contractAddress,
-          symbol: meta.symbol || 'UNKNOWN',
-          name: meta.name || meta.symbol || 'Unknown Token',
-          decimals: decimals,
-          balance: tb.tokenBalance, // Keep raw hex for frontend conversion
-          balanceFormatted: balance, // Provide formatted version
-          logoURI: meta.logo || `/tokens/${meta.symbol?.toLowerCase()}.png`,
-          chainId,
-        };
-      }),
-    );
+    
+    try {
+      const alchemy = this.getAlchemy(chainId);
+      const resp = await alchemy.core.getTokenBalances(address);
+      
+      // Filter out zero balances and process all tokens
+      const tokensWithBalance = resp.tokenBalances.filter(
+        (tb) => tb.tokenBalance && tb.tokenBalance !== '0x0'
+      );
+      
+      console.log(`[getErc20Balances] Found ${tokensWithBalance.length} tokens with balance on chain ${chainId} for address ${address}`);
+      
+      return Promise.all(
+        tokensWithBalance.map(async (tb) => {
+          try {
+            const meta = await alchemy.core.getTokenMetadata(tb.contractAddress);
+            // Convert hex balance to decimal
+            const rawBalance = BigInt(tb.tokenBalance || '0x0');
+            const decimals = meta.decimals || 18;
+            const balance = Number(rawBalance) / Math.pow(10, decimals);
+            
+            return {
+              contract: tb.contractAddress,
+              contractAddress: tb.contractAddress,
+              symbol: meta.symbol || 'UNKNOWN',
+              name: meta.name || meta.symbol || 'Unknown Token',
+              decimals: decimals,
+              balance: tb.tokenBalance, // Keep raw hex for frontend conversion
+              balanceFormatted: balance, // Provide formatted version
+              logoURI: meta.logo || `/tokens/${meta.symbol?.toLowerCase()}.png`,
+              chainId,
+            };
+          } catch (tokenError) {
+            console.warn(`[getErc20Balances] Failed to fetch metadata for token ${tb.contractAddress}:`, tokenError);
+            // Return with minimal data if metadata fetch fails
+            const rawBalance = BigInt(tb.tokenBalance || '0x0');
+            const decimals = 18; // Default to 18
+            const balance = Number(rawBalance) / Math.pow(10, decimals);
+            
+            return {
+              contract: tb.contractAddress,
+              contractAddress: tb.contractAddress,
+              symbol: 'UNKNOWN',
+              name: `Token ${tb.contractAddress.substring(0, 6)}...`,
+              decimals: decimals,
+              balance: tb.tokenBalance,
+              balanceFormatted: balance,
+              logoURI: '/tokens/default.png',
+              chainId,
+            };
+          }
+        }),
+      );
+    } catch (error) {
+      console.error(`[getErc20Balances] Failed to fetch token balances on chain ${chainId}:`, error);
+      throw new HttpException(
+        `Failed to fetch token balances: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
   }
 
   /* --- NFTs --- */

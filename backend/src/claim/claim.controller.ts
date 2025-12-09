@@ -69,7 +69,7 @@ export class ClaimController {
   @ApiOperation({ summary: 'Check claim status for a gift' })
   @ApiParam({ name: 'giftRef', description: 'On-chain gift ID (number) or string gift code' })
   @ApiOkResponse({ schema: { example: { status: 'CLAIMED', taskId: '0xabc123' } } })
-  async status(@Param('giftRef') giftRef: string) {
+  async status(@Param('giftRef') giftRef: string): Promise<any> {
     if (/^\d+$/.test(giftRef)) {
       return this.claimService.getStatusById(Number.parseInt(giftRef, 10));
     }

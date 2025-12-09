@@ -15,6 +15,7 @@ import { UpdateGiftpackDto } from './dto/update-giftpacks.dto';
 import { ConfigService } from '@nestjs/config';
 import { ethers, JsonRpcProvider, Wallet, Contract } from 'ethers';
 import GiftEscrowArtifact from '../claim/gift-escrow.json';
+import { GiftPack, GiftItem, Prisma } from '@prisma/client';
 
 @Injectable()
 export class GiftpacksService {
@@ -117,7 +118,7 @@ export class GiftpacksService {
     }
   }
 
-  async createDraft(dto: CreateGiftpackDto) {
+  async createDraft(dto: CreateGiftpackDto): Promise<GiftPack> {
     const expiryDate = new Date(dto.expiry);
     const data: any = {
       message: dto.message,
@@ -141,7 +142,7 @@ export class GiftpacksService {
     }
   }
 
-  async getDraft(id: string) {
+  async getDraft(id: string): Promise<GiftPack & { items: GiftItem[] }> {
     const pack = await this.prisma.giftPack.findUnique({
       where: { id },
       include: { items: true },
@@ -150,7 +151,7 @@ export class GiftpacksService {
     return pack;
   }
 
-  async updateDraft(id: string, dto: UpdateGiftpackDto) {
+  async updateDraft(id: string, dto: UpdateGiftpackDto): Promise<GiftPack> {
     try {
       return await this.prisma.giftPack.update({ where: { id }, data: { ...dto } });
     } catch (e) {
@@ -170,7 +171,7 @@ export class GiftpacksService {
     }
   }
 
-  async addItem(id: string, dto: AddItemDto) {
+  async addItem(id: string, dto: AddItemDto): Promise<GiftItem> {
     const pack = await this.getDraft(id);
     try {
       return await this.prisma.giftItem.create({
@@ -200,7 +201,7 @@ export class GiftpacksService {
     }
   }
 
-  async getUserGiftPacks(address: string) {
+  async getUserGiftPacks(address: string): Promise<Array<GiftPack & { items: GiftItem[] }>> {
     return this.prisma.giftPack.findMany({
       where: { senderAddress: address },
       include: { items: true },
@@ -249,7 +250,7 @@ export class GiftpacksService {
     return { isValid: errors.length === 0, errors };
   }
 
-  async updateWithOnChainId(id: string, onChainGiftId: number, txHash: string) {
+  async updateWithOnChainId(id: string, onChainGiftId: number, txHash: string): Promise<GiftPack & { items: GiftItem[] }> {
     const pack = await this.prisma.giftPack.findUnique({
       where: { id },
       include: { items: true }
@@ -271,7 +272,7 @@ export class GiftpacksService {
     return updated;
   }
 
-  async lockGiftPack(id: string) {
+  async lockGiftPack(id: string): Promise<any> {
     this.throwIfSmartContractDisabled('lockGiftPack');
 
     const validation = await this.validateGiftForLocking(id);
@@ -535,7 +536,7 @@ export class GiftpacksService {
     }
   }
 
-  async getGiftByOnChainId(giftIdOnChain: number) {
+  async getGiftByOnChainId(giftIdOnChain: number): Promise<GiftPack & { items: GiftItem[] }> {
     const pack = await this.prisma.giftPack.findFirst({
       where: { giftIdOnChain },
       include: { items: true },
@@ -544,7 +545,7 @@ export class GiftpacksService {
     return pack;
   }
 
-  async getGiftByGiftCode(giftCode: string) {
+  async getGiftByGiftCode(giftCode: string): Promise<GiftPack & { items: GiftItem[] }> {
     const pack = await this.prisma.giftPack.findFirst({
       where: { giftCode },
       include: { items: true },
@@ -729,7 +730,7 @@ export class GiftpacksService {
     });
   }
 
-  async getGiftPreview(giftIdOnChain: number) {
+  async getGiftPreview(giftIdOnChain: number): Promise<any> {
     const giftPack = await this.prisma.giftPack.findFirst({
       where: { giftIdOnChain },
       include: { items: true },

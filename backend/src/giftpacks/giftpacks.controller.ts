@@ -8,6 +8,7 @@ import { AddItemDto } from './dto/add-item.dto';
 import { WalletAuthGuard } from '../auth/wallet.guard';
 import { CreateGiftpackDto } from './dto/create-giftpack.dto';
 import { UpdateGiftpackDto } from './dto/update-giftpacks.dto';
+import { GiftPack, GiftItem } from '@prisma/client';
 
 @ApiTags('Giftpacks')
 @Controller('giftpacks')
@@ -17,7 +18,7 @@ export class GiftpacksController {
   @Get('code/:giftCode')
   @ApiOperation({ summary: 'Get gift pack by gift code (public, no auth required)' })
   @ApiParam({ name: 'giftCode', description: 'Gift code (unique)' })
-  async getGiftByGiftCode(@Param('giftCode') giftCode: string) {
+  async getGiftByGiftCode(@Param('giftCode') giftCode: string): Promise<GiftPack & { items: GiftItem[] }> {
     return this.service.getGiftByGiftCode(giftCode);
   }
 
@@ -25,7 +26,7 @@ export class GiftpacksController {
   @ApiBearerAuth()
   @Post()
   @ApiOperation({ summary: 'Create a new draft gift pack' })
-  create(@Body() dto: CreateGiftpackDto) {
+  create(@Body() dto: CreateGiftpackDto): Promise<GiftPack> {
     return this.service.createDraft(dto);
   }
 
@@ -34,7 +35,7 @@ export class GiftpacksController {
   @Get(':id')
   @ApiOperation({ summary: 'Get a gift pack by ID' })
   @ApiParam({ name: 'id', description: 'GiftPack ID' })
-  get(@Param('id') id: string) {
+  get(@Param('id') id: string): Promise<GiftPack & { items: GiftItem[] }> {
     return this.service.getDraft(id);
   }
 
@@ -42,7 +43,7 @@ export class GiftpacksController {
   @ApiBearerAuth()
   @Patch(':id')
   @ApiOperation({ summary: 'Update draft gift pack metadata' })
-  update(@Param('id') id: string, @Body() dto: UpdateGiftpackDto) {
+  update(@Param('id') id: string, @Body() dto: UpdateGiftpackDto): Promise<GiftPack> {
     return this.service.updateDraft(id, dto);
   }
 
@@ -58,7 +59,7 @@ export class GiftpacksController {
   @ApiBearerAuth()
   @Post(':id/items')
   @ApiOperation({ summary: 'Add item to gift pack' })
-  addItem(@Param('id') id: string, @Body() dto: AddItemDto) {
+  addItem(@Param('id') id: string, @Body() dto: AddItemDto): Promise<GiftItem> {
     return this.service.addItem(id, dto);
   }
 
@@ -84,7 +85,7 @@ export class GiftpacksController {
   @Post(':id/lock')
   @ApiOperation({ summary: 'Lock gift pack on blockchain (code-only; recipient not required)' })
   @ApiParam({ name: 'id', description: 'GiftPack ID' })
-  lockGiftPack(@Param('id') id: string) {
+  lockGiftPack(@Param('id') id: string): Promise<any> {
     return this.service.lockGiftPack(id);
   }
 
@@ -96,7 +97,7 @@ export class GiftpacksController {
   updateWithOnChainId(
     @Param('id') id: string,
     @Body() data: { onChainGiftId: number; txHash: string }
-  ) {
+  ): Promise<GiftPack & { items: GiftItem[] }> {
     return this.service.updateWithOnChainId(id, data.onChainGiftId, data.txHash);
   }
 
@@ -114,7 +115,7 @@ export class GiftpacksController {
   @Get('user/:address')
   @ApiOperation({ summary: 'Get gift packs created by a user' })
   @ApiParam({ name: 'address', description: 'User wallet address' })
-  getUserGiftPacks(@Param('address') address: string) {
+  getUserGiftPacks(@Param('address') address: string): Promise<Array<GiftPack & { items: GiftItem[] }>> {
     return this.service.getUserGiftPacks(address);
   }
 
@@ -144,14 +145,14 @@ export class GiftpacksController {
   @Get('on-chain/:giftId')
   @ApiOperation({ summary: 'Get gift pack by on-chain gift ID' })
   @ApiParam({ name: 'giftId', description: 'On-chain gift ID' })
-  async getGiftByOnChainId(@Param('giftId') giftId: string) {
+  async getGiftByOnChainId(@Param('giftId') giftId: string): Promise<GiftPack & { items: GiftItem[] }> {
     return this.service.getGiftByOnChainId(Number(giftId));
   }
 
   @Get('on-chain/:giftId/preview')
   @ApiOperation({ summary: 'Get public gift preview info for claiming (no auth required)' })
   @ApiParam({ name: 'giftId', description: 'On-chain gift ID' })
-  async getGiftPreview(@Param('giftId') giftId: string) {
+  async getGiftPreview(@Param('giftId') giftId: string): Promise<any> {
     return this.service.getGiftPreview(Number(giftId));
   }
 }

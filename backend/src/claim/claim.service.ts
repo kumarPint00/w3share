@@ -9,6 +9,7 @@ import { GelatoRelay } from '@gelatonetwork/relay-sdk';
 import * as GiftEscrowArtifact from './gift-escrow.json';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'prisma/prisma.service';
+import { ClaimTask } from '@prisma/client';
 
 @Injectable()
 export class ClaimService {
@@ -229,7 +230,7 @@ export class ClaimService {
     return this.submitClaimById(pack.giftIdOnChain, claimer);
   }
 
-  async getStatusById(giftId: number) {
+  async getStatusById(giftId: number): Promise<{ status: string; taskId: string | null }> {
     const record = await this.prisma.claimTask.findFirst({
       where: { giftPack: { giftIdOnChain: giftId } },
       include: { giftPack: true },
@@ -242,7 +243,7 @@ export class ClaimService {
     return { status: record.status, taskId: record.taskId };
   }
 
-  async getStatusByCode(giftCode: string) {
+  async getStatusByCode(giftCode: string): Promise<any> {
     const code = (giftCode || '').trim();
     if (!code) {
       throw new BadRequestException({

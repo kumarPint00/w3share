@@ -103,6 +103,18 @@ export class GiftpacksController {
 
   @UseGuards(WalletAuthGuard)
   @ApiBearerAuth()
+  @Patch(':id/multi-on-chain')
+  @ApiOperation({ summary: 'Update gift pack with multiple on-chain gift IDs for multi-token gifts' })
+  @ApiParam({ name: 'id', description: 'GiftPack ID' })
+  updateWithMultipleOnChainIds(
+    @Param('id') id: string,
+    @Body() data: { giftIds: number[] }
+  ): Promise<GiftPack & { items: GiftItem[] }> {
+    return this.service.updateWithMultipleOnChainIds(id, data.giftIds);
+  }
+
+  @UseGuards(WalletAuthGuard)
+  @ApiBearerAuth()
   @Get('on-chain/:giftId/status')
   @ApiOperation({ summary: 'Get on-chain gift status' })
   @ApiParam({ name: 'giftId', description: 'On-chain gift ID' })

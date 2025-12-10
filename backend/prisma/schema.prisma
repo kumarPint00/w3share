@@ -25,6 +25,7 @@ model GiftPack {
   expiry        DateTime    @default(now())
   status        GiftStatus  @default(DRAFT)
   giftIdOnChain Int?        @unique
+  giftIdsOnChain String?   // JSON array of giftIds for multi-token gifts
   giftCode      String?     @unique
   items         GiftItem[]
   claimTasks    ClaimTask[]

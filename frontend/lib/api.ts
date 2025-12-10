@@ -343,10 +343,17 @@ class ApiService {
     return this.request(`/giftpacks/${id}`);
   }
 
-  async updateGiftPackWithOnChainId(id: string, onChainGiftId: number, txHash: string): Promise<GiftPack> {
+  async updateGiftPackWithOnChainId(id: string, onChainGiftId: number, txHash: string): Promise<GiftPack & { items: GiftItem[] }> {
     return this.request(`/giftpacks/${id}/on-chain`, {
       method: 'PATCH',
       body: JSON.stringify({ onChainGiftId, txHash }),
+    });
+  }
+
+  async updateGiftPackWithMultipleOnChainIds(id: string, giftIds: number[]): Promise<GiftPack & { items: GiftItem[] }> {
+    return this.request(`/giftpacks/${id}/multi-on-chain`, {
+      method: 'PATCH',
+      body: JSON.stringify({ giftIds }),
     });
   }
 

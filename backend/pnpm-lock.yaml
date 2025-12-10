@@ -36,8 +36,8 @@ importers:
         specifier: ^11.2.0
         version: 11.2.3(@nestjs/common@11.1.9(class-validator@0.14.3)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.9)(class-validator@0.14.3)(reflect-metadata@0.2.2)
       '@prisma/client':
-        specifier: 6.19.0
-        version: 6.19.0(prisma@6.19.0(typescript@5.9.3))(typescript@5.9.3)
+        specifier: ^6.13.0
+        version: 6.13.0(prisma@6.19.0(typescript@5.9.3))(typescript@5.9.3)
       alchemy-sdk:
         specifier: ^3.6.0
         version: 3.6.5(bufferutil@4.0.9)(typescript@5.9.3)(utf-8-validate@5.0.10)
@@ -1175,8 +1175,8 @@ packages:
     resolution: {integrity: sha512-QNqXyfVS2wm9hweSYD2O7F0G06uurj9kZ96TRQE5Y9hU7+tgdZwIkbAKc5Ocy1HxEY2kuDQa6cQ1WRs/O5LFKA==}
     engines: {node: ^12.20.0 || ^14.18.0 || >=16.0.0}
 
-  '@prisma/client@6.19.0':
-    resolution: {integrity: sha512-QXFT+N/bva/QI2qoXmjBzL7D6aliPffIwP+81AdTGq0FXDoLxLkWivGMawG8iM5B9BKfxLIXxfWWAF6wbuJU6g==}
+  '@prisma/client@6.13.0':
+    resolution: {integrity: sha512-8m2+I3dQovkV8CkDMluiwEV1TxV9EXdT6xaCz39O6jYw7mkf5gwfmi+cL4LJsEPwz5tG7sreBwkRpEMJedGYUQ==}
     engines: {node: '>=18.18'}
     peerDependencies:
       prisma: '*'
@@ -5929,7 +5929,7 @@ snapshots:
 
   '@pkgr/core@0.2.9': {}
 
-  '@prisma/client@6.19.0(prisma@6.19.0(typescript@5.9.3))(typescript@5.9.3)':
+  '@prisma/client@6.13.0(prisma@6.19.0(typescript@5.9.3))(typescript@5.9.3)':
     optionalDependencies:
       prisma: 6.19.0(typescript@5.9.3)
       typescript: 5.9.3

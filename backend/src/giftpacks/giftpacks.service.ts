@@ -272,6 +272,29 @@ export class GiftpacksService {
     return updated;
   }
 
+  async updateWithMultipleOnChainIds(id: string, giftIds: number[]): Promise<GiftPack & { items: GiftItem[] }> {
+    const pack = await this.prisma.giftPack.findUnique({
+      where: { id },
+      include: { items: true }
+    });
+
+    if (!pack) {
+      throw new NotFoundException('Gift pack not found');
+    }
+
+    const updated = await this.prisma.giftPack.update({
+      where: { id },
+      data: {
+        giftIdOnChain: giftIds[0], // Primary gift ID for compatibility
+        giftIdsOnChain: JSON.stringify(giftIds), // All gift IDs
+        status: 'LOCKED',
+      },
+      include: { items: true }
+    });
+
+    return updated;
+  }
+
   async lockGiftPack(id: string): Promise<any> {
     this.throwIfSmartContractDisabled('lockGiftPack');
 

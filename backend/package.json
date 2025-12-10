@@ -29,7 +29,7 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/schedule": "^6.0.1",
     "@nestjs/swagger": "^11.2.0",
-    "@prisma/client": "6.19.0",
+    "@prisma/client": "^6.13.0",
     "alchemy-sdk": "^3.6.0",
     "cache-manager": "^7.0.0",
     "class-validator": "^0.14.2",

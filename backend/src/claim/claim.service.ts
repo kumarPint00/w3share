@@ -127,6 +127,7 @@ export class ClaimService {
 
     const pack = await this.prisma.giftPack.findUnique({
       where: { giftIdOnChain: giftId },
+      include: { items: true },
     });
     if (!pack || pack.status !== 'LOCKED') {
       throw new NotFoundException({
@@ -134,24 +135,77 @@ export class ClaimService {
       });
     }
 
+    // Check if this is a multi-token gift
+    const allGiftIds = this.getAllGiftIds(pack);
     const giftCode = pack.giftCode ? String(pack.giftCode).trim() : '';
     const useCodePath = giftCode.length > 0;
-    const iface = new ethers.Interface(GiftEscrowArtifact.abi);
-    const data = useCodePath
-      ? iface.encodeFunctionData('claimGiftWithCode', [giftId, giftCode])
-      : iface.encodeFunctionData('claimGift', [giftId]);
 
+    if (allGiftIds.length > 1) {
+      // Multi-token gift - return multiple claim transactions
+      return this.createMultiTokenClaimResponse(allGiftIds, giftCode, useCodePath, pack);
+    } else {
+      // Single token gift - existing logic
+      const iface = new ethers.Interface(GiftEscrowArtifact.abi);
+      const data = useCodePath
+        ? iface.encodeFunctionData('claimGiftWithCode', [giftId, giftCode])
+        : iface.encodeFunctionData('claimGift', [giftId]);
+
+      const unwrapInfo = this.getUnwrapInfo(pack);
+
+      return {
+        contract: this.escrowAddress!,
+        abi: GiftEscrowArtifact.abi,
+        function: useCodePath ? 'claimGiftWithCode' : 'claimGift',
+        args: useCodePath ? [giftId, giftCode] : [giftId],
+        data,
+        chainId: this.chainId.toString(),
+        message: 'Call this contract method from your wallet to claim.',
+        unwrapInfo,
+      };
+    }
+  }
+
+  private getAllGiftIds(pack: any): number[] {
+    // If giftIdsOnChain exists (multi-token), parse it
+    if (pack.giftIdsOnChain) {
+      try {
+        return JSON.parse(pack.giftIdsOnChain);
+      } catch {
+        // Fallback to single gift ID
+        return pack.giftIdOnChain ? [pack.giftIdOnChain] : [];
+      }
+    }
+    // Single token gift
+    return pack.giftIdOnChain ? [pack.giftIdOnChain] : [];
+  }
+
+  private createMultiTokenClaimResponse(giftIds: number[], giftCode: string, useCodePath: boolean, pack: any) {
+    const iface = new ethers.Interface(GiftEscrowArtifact.abi);
+    
+    // Create claim transactions for each gift ID
+    const claimTransactions = giftIds.map(giftId => {
+      const data = useCodePath
+        ? iface.encodeFunctionData('claimGiftWithCode', [giftId, giftCode])
+        : iface.encodeFunctionData('claimGift', [giftId]);
+
+      return {
+        contract: this.escrowAddress!,
+        abi: GiftEscrowArtifact.abi,
+        function: useCodePath ? 'claimGiftWithCode' : 'claimGift',
+        args: useCodePath ? [giftId, giftCode] : [giftId],
+        data,
+        giftId,
+      };
+    });
 
     const unwrapInfo = this.getUnwrapInfo(pack);
 
     return {
-      contract: this.escrowAddress!,
-      abi: GiftEscrowArtifact.abi,
-      function: useCodePath ? 'claimGiftWithCode' : 'claimGift',
-      args: useCodePath ? [giftId, giftCode] : [giftId],
-      data,
+      isMultiToken: true,
+      totalTokens: giftIds.length,
+      claimTransactions,
       chainId: this.chainId.toString(),
-      message: 'Call this contract method from your wallet to claim.',
+      message: `This gift contains ${giftIds.length} tokens. You need to claim each token separately.`,
       unwrapInfo,
     };
   }

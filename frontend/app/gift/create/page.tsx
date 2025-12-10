@@ -322,9 +322,13 @@ const CreatePack: React.FC = () => {
         
         // All tokens processed successfully
         if (giftIds.length > 0) {
-          // Update backend with all gift IDs
-          for (const giftId of giftIds) {
-            await apiService.updateGiftPackWithOnChainId(packId, giftId, ''); // txHash not needed for multiple
+          // For multi-token gifts, store all giftIds
+          if (giftIds.length > 1) {
+            // Store all gift IDs as JSON array for multi-token claiming
+            await apiService.updateGiftPackWithMultipleOnChainIds(packId, giftIds);
+          } else {
+            // Single token - use existing method
+            await apiService.updateGiftPackWithOnChainId(packId, giftIds[0], '');
           }
           
           setToast({ 

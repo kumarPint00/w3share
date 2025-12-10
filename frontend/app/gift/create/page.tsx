@@ -51,13 +51,25 @@ const CreatePack: React.FC = () => {
     const unitUsd = balance > 0 ? (totalUsd / balance) : (token.priceUsd || 0);
     const itemUsd = Number(token.amount || 0) * unitUsd;
 
+    // Ensure proper contract address mapping
+    const contractAddress = token.contract || token.address;
+    
+    console.log('Adding token to gift pack:', {
+      symbol: token.symbol,
+      contract: token.contract,
+      address: token.address,
+      resolvedContract: contractAddress,
+      amount: token.amount,
+      isNative: token.isNative
+    });
+
     dispatch({
       type: 'add',
       item: {
         ...token,
         type: 'ERC20',
+        contract: contractAddress, // Ensure contract field is set
         amount: token.amount,
-
         rawAmount: String(token.amount),
         usd: isFinite(itemUsd) ? itemUsd : 0,
       } as unknown as GiftItem,
@@ -115,20 +127,30 @@ const CreatePack: React.FC = () => {
       for (const it of state.items) {
         const isNft = it.type === 'NFT';
 
-
-        let contract = (it as any).address as string | undefined;
+        // Try multiple fields to find contract address
+        let contract = (it as any).contract || (it as any).address;
         let tokenId: string | undefined;
+        
         if (!contract && isNft) {
-
+          // For NFTs, try to extract from ID
           const [c, t] = (it.id || '').split(':');
           if (c && t) {
             contract = c;
             tokenId = t;
           }
         }
-        if (!contract) {
-          throw new Error('Missing contract address for item');
+        
+        // Special handling for native ETH
+        if (!contract && ((it as any).isNative || (it as any).symbol === 'ETH')) {
+          contract = 'native';
         }
+        
+        if (!contract) {
+          console.error('Missing contract address for item:', it);
+          throw new Error(`Missing contract address for ${it.symbol || 'unknown token'}`);
+        }
+
+        console.log(`Processing item ${it.symbol}: contract=${contract}, isNft=${isNft}`);
 
         const decimals = (it as any).decimals ?? 18;
 
@@ -172,64 +194,233 @@ const CreatePack: React.FC = () => {
       const pack = await apiService.getGiftPack(packId);
       const firstItem = pack.items[0];
       
-      // Check if direct contract interaction is available
-      if (firstItem && firstItem.type === 'ERC20' && isContractAvailable()) {
-        console.log('Gift pack item details:', {
-          contract: firstItem.contract,
-          amount: firstItem.amount,
-          type: typeof firstItem.amount,
-          rawAmount: (firstItem as any).rawAmount
+      // Check if direct contract interaction is available for all ERC20 tokens (excluding native ETH)
+      const allERC20 = state.items.every(item => item.type === 'ERC20');
+      const hasNativeEth = state.items.some(item => {
+        const isNativeEth = item.contract === 'native' || 
+                           item.contract === '0x0000000000000000000000000000000000000000' ||
+                           (item.address === 'native') ||
+                           (item.symbol === 'ETH' && item.isNative === true);
+        return isNativeEth;
+      });
+      
+      // Force backend flow for native ETH since contract doesn't support it directly
+      if (allERC20 && state.items.length > 0 && isContractAvailable() && !hasNativeEth) {
+        try {
+        console.log('Multi-token gift pack items:', state.items.map(item => ({
+          contract: item.contract,
+          amount: item.amount,
+          type: typeof item.amount,
+          rawAmount: (item as any).rawAmount,
+          symbol: item.symbol
+        })));
+        
+        const giftIds: number[] = [];
+        let totalEthUsed = BigInt(0);
+        
+        // Check total ETH balance first (for gas + ETH gifts)
+        setToast({ open: true, msg: 'Checking balances for multi-token gift...', severity: 'info' });
+        const ethCheck = await checkEthBalance();
+        
+        // Calculate total ETH needed (gas + any ETH amounts)
+        let totalEthNeeded = ethers.parseEther('0.002'); // Base gas for multiple transactions
+        const ethItems = state.items.filter(item => {
+          const isNativeEth = item.contract === 'native' || 
+                             item.contract === '0x0000000000000000000000000000000000000000' ||
+                             (item.address === 'native') ||
+                             (item.symbol === 'ETH' && item.isNative === true);
+          console.log(`Token ${item.symbol} (${item.contract}) - isNativeEth: ${isNativeEth}`);
+          return isNativeEth;
         });
         
-        // Check if it's native ETH (address is "native" or similar)
-        const isNativeEth = !firstItem.contract || 
-                           firstItem.contract.toLowerCase() === 'native' || 
-                           firstItem.contract === '0x0000000000000000000000000000000000000000';
-        
-        if (isNativeEth) {
-          // Native ETH cannot be locked via ERC20 flow
-          throw new Error('Native ETH gifting is not supported yet. Please select an ERC20 token like USDC, LINK, or WETH.');
+        for (const ethItem of ethItems) {
+          const amountToUse = (ethItem as any).rawAmount || '0';
+          if (!amountToUse || amountToUse === '0') {
+            throw new Error(`Invalid ETH amount for ${ethItem.symbol}: ${amountToUse}`);
+          }
+          totalEthNeeded += ethers.parseEther(amountToUse);
         }
         
-        // Handle ERC20 token - need frontend approval and locking
-        
-        // First check if user has enough ETH for gas fees
-        setToast({ open: true, msg: 'Checking gas fee balance...', severity: 'info' });
-        const ethCheck = await checkEthBalance();
-        if (!ethCheck.hasEnoughForGas) {
-          throw new Error(`Insufficient ETH for gas fees. You have ${ethCheck.balanceEth.toFixed(4)} ETH, need at least 0.001 ETH`);
-        }
-
-        setToast({ open: true, msg: 'Please approve token in your wallet...', severity: 'info' });
-        
-        // Use rawAmount if available (user input), otherwise use amount (wei format)
-        const amountToUse = (firstItem as any).rawAmount || firstItem.amount.toString();
-        
-        // Approve token
-        await approveToken(firstItem.contract, amountToUse);
-        setToast({ open: true, msg: 'Token approved! Locking gift...', severity: 'info' });
-        
-        // Lock gift on blockchain directly
-        const lockResult = await lockGiftOnChain(
-          firstItem.contract,
-          amountToUse,
-          pack.message || 'A gift for you!',
-          code,
-          7
-        );
-        
-        if (lockResult.success) {
-          // Notify backend about successful locking
-          await apiService.updateGiftPackWithOnChainId(packId, lockResult.giftId, lockResult.txHash);
+        if (ethCheck.balance < totalEthNeeded) {
+          const neededEth = parseFloat(ethers.formatEther(totalEthNeeded));
+          throw new Error(`Insufficient ETH. Need ${neededEth.toFixed(4)} ETH total (${ethItems.length} ETH gifts + gas), have ${ethCheck.balanceEth.toFixed(4)} ETH`);
         }
         
-        setToast({ open: true, msg: 'Gift locked successfully!', severity: 'success' });
-        router.push(`/gift/create/success?giftCode=${code}&giftId=${lockResult.giftId}`);
+        // Process each token individually
+        for (let i = 0; i < state.items.length; i++) {
+          const item = state.items[i];
+          setToast({ open: true, msg: `Processing ${item.symbol} (${i+1}/${state.items.length})...`, severity: 'info' });
+          
+          const isNativeEth = item.contract === 'native' || 
+                             item.contract === '0x0000000000000000000000000000000000000000' ||
+                             (item.address === 'native') ||
+                             (item.symbol === 'ETH' && item.isNative === true);
+          
+          console.log(`Processing ${item.symbol} - contract: ${item.contract}, isNativeEth: ${isNativeEth}`);
+        
+          if (isNativeEth) {
+            // Handle native ETH gifting
+            const amountToUse = (item as any).rawAmount || '0';
+            
+            if (!amountToUse || amountToUse === '0') {
+              throw new Error(`Invalid ETH amount for ${item.symbol}: ${amountToUse}`);
+            }
+            
+            setToast({ open: true, msg: `Locking ${amountToUse} ETH...`, severity: 'info' });
+            
+            // Lock native ETH on blockchain
+            const lockResult = await lockGiftOnChain(
+              '0x0000000000000000000000000000000000000000', // Special address for ETH
+              amountToUse,
+              pack.message || 'A gift for you!',
+              code,
+              7,
+              true // isEth flag
+            );
+            
+            if (lockResult?.success && lockResult.giftId) {
+              giftIds.push(lockResult.giftId);
+              totalEthUsed += ethers.parseEther(amountToUse);
+            } else {
+              throw new Error(`Failed to lock ETH gift: ${item.symbol}`);
+            }
+          } else {
+            // Handle ERC20 token - need frontend approval and locking
+            const amountToUse = (item as any).rawAmount || item.amount.toString();
+            
+            // Check if token has valid contract address
+            const contractAddress = item.contract || item.address;
+            if (!contractAddress || !ethers.isAddress(contractAddress)) {
+              console.warn(`Token ${item.symbol} missing contract address, falling back to backend`);
+              throw new Error(`FALLBACK_TO_BACKEND: ${item.symbol} requires backend processing`);
+            }
+            
+            setToast({ open: true, msg: `Approving ${item.symbol}...`, severity: 'info' });
+            
+            // Approve token
+            await approveToken(contractAddress, amountToUse);
+            
+            setToast({ open: true, msg: `Locking ${item.symbol}...`, severity: 'info' });
+            
+            // Lock gift on blockchain directly
+            const lockResult = await lockGiftOnChain(
+              contractAddress,
+              amountToUse,
+              pack.message || 'A gift for you!',
+              code,
+              7,
+              false // not ETH
+            );
+            
+            if (lockResult?.success && lockResult.giftId) {
+              giftIds.push(lockResult.giftId);
+            } else {
+              throw new Error(`Failed to lock ${item.symbol} gift`);
+            }
+          }
+        }
+        
+        // All tokens processed successfully
+        if (giftIds.length > 0) {
+          // Update backend with all gift IDs
+          for (const giftId of giftIds) {
+            await apiService.updateGiftPackWithOnChainId(packId, giftId, ''); // txHash not needed for multiple
+          }
+          
+          setToast({ 
+            open: true, 
+            msg: `Multi-token gift created! ${giftIds.length} tokens locked successfully.`, 
+            severity: 'success' 
+          });
+          // Build success URL with transaction hash from multi-token gifts
+          const params = new URLSearchParams({
+            giftCode: code,
+            giftId: giftIds[0].toString()
+          });
+          // Note: For multi-token gifts, we could collect all transaction hashes
+          // but for simplicity, we'll show the first one if available
+          router.push(`/gift/create/success?${params.toString()}`);
+        } else {
+          throw new Error('No tokens were successfully locked');
+        }
+        } catch (directError: any) {
+          console.warn('Direct contract interaction failed, falling back to backend:', directError.message);
+          
+          // If it's a fallback error or any contract interaction error, use backend
+          if (directError.message.includes('FALLBACK_TO_BACKEND') || 
+              directError.message.includes('Invalid token contract') ||
+              directError.message.includes('Token contract error')) {
+            console.log('Using backend fallback for problematic tokens');
+            const lockRes = await apiService.lockGiftPack(packId);
+            setToast({ open: true, msg: 'Gift locked successfully via backend!', severity: 'success' });
+            
+            // Build success URL with transaction hash from fallback
+            const params = new URLSearchParams({
+              giftCode: lockRes.giftCode
+            });
+            if (lockRes.transactionHash || lockRes.txHash) {
+              params.set('txHash', lockRes.transactionHash || lockRes.txHash);
+            }
+            if (lockRes.blockNumber) {
+              params.set('blockNumber', lockRes.blockNumber.toString());
+            }
+            router.push(`/gift/create/success?${params.toString()}`);
+            return; // Important: exit here to prevent double processing
+          }
+          
+          // Re-throw other errors
+          throw directError;
+        }
       } else {
-        // Fallback to backend for non-ERC20 or if direct contract interaction fails
-        const lockRes = await apiService.lockGiftPack(packId);
-        setToast({ open: true, msg: 'Gift locked successfully!', severity: 'success' });
-        router.push(`/gift/create/success?giftCode=${lockRes.giftCode}`);
+        // Fallback to backend for multi-token gifts, NFTs, native ETH, or if direct contract interaction fails
+        console.log('Using backend flow - Reason:', {
+          hasFirstItem: !!firstItem,
+          itemType: firstItem?.type,
+          isContractAvailable: isContractAvailable(),
+          itemCount: state.items.length,
+          allERC20,
+          hasNativeEth,
+          reason: hasNativeEth ? 'Native ETH detected - using backend' : 'Other reason',
+          items: state.items.map(item => ({
+            symbol: item.symbol,
+            contract: item.contract,
+            address: item.address,
+            type: item.type
+          }))
+        });
+        // Add specific messaging for ETH gifts
+        if (hasNativeEth) {
+          setToast({ open: true, msg: 'Processing ETH gift via secure backend...', severity: 'info' });
+        }
+        
+        try {
+          const lockRes = await apiService.lockGiftPack(packId);
+          const successMsg = hasNativeEth 
+            ? 'ETH gift locked successfully!' 
+            : 'Gift locked successfully via backend!';
+          setToast({ open: true, msg: successMsg, severity: 'success' });
+          
+          // Build success URL with transaction hash
+          const params = new URLSearchParams({
+            giftCode: lockRes.giftCode
+          });
+          if (lockRes.transactionHash || lockRes.txHash) {
+            params.set('txHash', lockRes.transactionHash || lockRes.txHash);
+          }
+          if (lockRes.blockNumber) {
+            params.set('blockNumber', lockRes.blockNumber.toString());
+          }
+          router.push(`/gift/create/success?${params.toString()}`);
+        } catch (backendError: any) {
+          console.error('Backend gift creation failed:', backendError);
+          // For ETH gifts, show specific error about testnet requirements
+          if (hasNativeEth) {
+            setError(`ETH gift failed: Backend requires Sepolia testnet WETH, but you provided mainnet amounts. Please use testnet tokens or convert to WETH on Sepolia. Error: ${backendError.message}`);
+          } else {
+            setError(`Backend gift creation failed: ${backendError.message}`);
+          }
+          throw backendError; // Re-throw to be caught by outer catch
+        }
       }
     } catch (e: any) {
       console.error('Lock gift error:', e);

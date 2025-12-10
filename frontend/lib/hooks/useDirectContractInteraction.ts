@@ -137,7 +137,8 @@ export function useDirectContractInteraction() {
     amount: string,
     message: string,
     giftCode: string,
-    expiryDays: number = 7
+    expiryDays: number = 7,
+    isEth: boolean = false
   ) => {
     if (!isAvailable()) {
       throw new Error('Escrow contract not configured - using backend flow');
@@ -154,30 +155,51 @@ export function useDirectContractInteraction() {
         throw new Error(`Insufficient ETH for gas fees. You have ${ethCheck.balanceEth.toFixed(4)} ETH, need at least 0.001 ETH`);
       }
       
-      // Validate token address
-      if (!tokenAddress || 
-          tokenAddress.toLowerCase() === 'native' || 
-          tokenAddress === '0x0000000000000000000000000000000000000000' ||
-          !ethers.isAddress(tokenAddress)) {
-        throw new Error('Invalid token address. Native ETH is not supported for direct locking.');
-      }
-      
       const signer = await provider.getSigner();
       const escrowContract = new Contract(ESCROW_ADDRESS, ESCROW_ABI, signer);
       
-      // Get token decimals with fallback
-      const tokenContract = new Contract(tokenAddress, ERC20_ABI, signer);
-      let decimals = 18; // Default fallback
-      try {
-        decimals = await tokenContract.decimals();
-      } catch (decimalsError) {
-        console.warn('Could not get decimals from contract, using default 18:', decimalsError);
-        if (amount.length > 10) {
-          decimals = 0; // Assume already in wei
-        }
-      }
+      let amountWei: bigint;
+      let assetType: number;
+      let txOptions: any = {};
       
-      const amountWei = decimals === 0 ? BigInt(amount) : ethers.parseUnits(amount, decimals);
+      if (isEth) {
+        // Handle native ETH
+        assetType = 2; // AssetType.ETH in contract
+        amountWei = ethers.parseEther(amount);
+        
+        // For ETH, we need to send the value with the transaction
+        txOptions.value = amountWei;
+        
+        // Extra check: ensure we have enough ETH for the gift + gas
+        if (ethCheck.balance < amountWei + ethers.parseEther('0.001')) {
+          throw new Error(`Insufficient ETH. Need ${ethers.formatEther(amountWei + ethers.parseEther('0.001'))} ETH (gift + gas), have ${ethCheck.balanceEth} ETH`);
+        }
+      } else {
+        // Handle ERC20 token
+        assetType = 0; // AssetType.ERC20
+        
+        // Validate token address
+        if (!tokenAddress || 
+            tokenAddress.toLowerCase() === 'native' || 
+            tokenAddress === '0x0000000000000000000000000000000000000000' ||
+            !ethers.isAddress(tokenAddress)) {
+          throw new Error('Invalid token address.');
+        }
+        
+        // Get token decimals with fallback
+        const tokenContract = new Contract(tokenAddress, ERC20_ABI, signer);
+        let decimals = 18; // Default fallback
+        try {
+          decimals = await tokenContract.decimals();
+        } catch (decimalsError) {
+          console.warn('Could not get decimals from contract, using default 18:', decimalsError);
+          if (amount.length > 10) {
+            decimals = 0; // Assume already in wei
+          }
+        }
+        
+        amountWei = decimals === 0 ? BigInt(amount) : ethers.parseUnits(amount, decimals);
+      }
       
       // Calculate expiry timestamp
       const expiryTimestamp = Math.floor(Date.now() / 1000) + (expiryDays * 24 * 60 * 60);
@@ -186,25 +208,38 @@ export function useDirectContractInteraction() {
       const codeHash = ethers.keccak256(ethers.toUtf8Bytes(giftCode));
       
       console.log('Locking gift on chain:', {
-        assetType: 0, // ERC20
-        tokenAddress,
+        assetType,
+        tokenAddress: isEth ? '0x0000000000000000000000000000000000000000' : tokenAddress,
         tokenId: 0,
         amount: amountWei.toString(),
         expiryTimestamp,
         message,
-        codeHash
+        codeHash,
+        isEth,
+        msgValue: isEth ? ethers.formatEther(amountWei) : 'N/A'
       });
       
       // Call lockGiftV2 on the contract
-      const tx = await escrowContract.lockGiftV2(
-        0, // assetType: ERC20
-        tokenAddress,
-        0, // tokenId (not used for ERC20)
-        amountWei,
-        expiryTimestamp,
-        message,
-        codeHash
-      );
+      const tx = isEth 
+        ? await escrowContract.lockGiftV2(
+            assetType,
+            '0x0000000000000000000000000000000000000000',
+            0, // tokenId (not used for ETH)
+            amountWei,
+            expiryTimestamp,
+            message,
+            codeHash,
+            { value: amountWei } // Pass ETH value as transaction option
+          )
+        : await escrowContract.lockGiftV2(
+            assetType,
+            tokenAddress,
+            0, // tokenId (not used for ERC20)
+            amountWei,
+            expiryTimestamp,
+            message,
+            codeHash
+          );
       
       console.log('Transaction sent:', tx.hash);
       const receipt = await tx.wait();

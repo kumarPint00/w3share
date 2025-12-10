@@ -24,13 +24,25 @@ contract GiftEscrow {
         if (expiryTimestamp <= block.timestamp) {
             return (false, "Expiry in past");
         }
-        if (assetType > uint8(AssetType.ERC721)) {
+        if (assetType > uint8(AssetType.ETH)) {
             return (false, "Bad assetType");
         }
+        
+        AssetType at = AssetType(assetType);
+        
+        // ETH type: no token address needed
+        if (at == AssetType.ETH) {
+            if (amount == 0) {
+                return (false, "Amount>0");
+            }
+            return (true, "");
+        }
+        
+        // ERC20/ERC721 types: token address required
         if (tokenAddress == address(0)) {
             return (false, "Token required");
         }
-        AssetType at = AssetType(assetType);
+        
         if (at == AssetType.ERC20) {
             if (amount == 0) {
                 return (false, "Amount>0");
@@ -44,7 +56,7 @@ contract GiftEscrow {
     }
     using SafeERC20 for IERC20;
 
-    enum AssetType { ERC20, ERC721 }
+    enum AssetType { ERC20, ERC721, ETH }
 
     struct Gift {
         AssetType assetType;
@@ -94,16 +106,25 @@ contract GiftEscrow {
     ) private returns (uint256 giftId) {
         require(codeHash != bytes32(0), 'Code required');
         require(expiryTimestamp > block.timestamp, 'Expiry in past');
-        require(assetType <= uint8(AssetType.ERC721), 'Bad assetType');
-        require(tokenAddress != address(0), 'Token required');
+        require(assetType <= uint8(AssetType.ETH), 'Bad assetType');
 
         AssetType at = AssetType(assetType);
-        if (at == AssetType.ERC20) {
+        
+        if (at == AssetType.ETH) {
+            // For ETH gifts, msg.value must match amount and no token address needed
             require(amount > 0, 'Amount>0');
-            IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), amount);
+            require(msg.value == amount, 'Incorrect ETH amount');
         } else {
-            require(tokenId != 0, 'tokenId>0');
-            IERC721(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenId);
+            // For token gifts, token address is required
+            require(tokenAddress != address(0), 'Token required');
+            
+            if (at == AssetType.ERC20) {
+                require(amount > 0, 'Amount>0');
+                IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), amount);
+            } else {
+                require(tokenId != 0, 'tokenId>0');
+                IERC721(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenId);
+            }
         }
 
         giftId = nextGiftId++;
@@ -180,8 +201,12 @@ contract GiftEscrow {
     function _payout(Gift storage g, address to) private {
         if (g.assetType == AssetType.ERC721) {
             IERC721(g.tokenAddress).safeTransferFrom(address(this), to, g.tokenId);
-        } else {
+        } else if (g.assetType == AssetType.ERC20) {
             IERC20(g.tokenAddress).safeTransfer(to, g.amount);
+        } else {
+            // ETH type
+            (bool success, ) = payable(to).call{value: g.amount}("");
+            require(success, "ETH transfer failed");
         }
     }
 
@@ -254,4 +279,7 @@ contract GiftEscrow {
     function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
         return this.onERC721Received.selector;
     }
+
+    // Allow contract to receive ETH
+    receive() external payable {}
 }

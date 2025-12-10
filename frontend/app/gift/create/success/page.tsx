@@ -23,12 +23,18 @@ export default function GiftReady() {
 
   const giftCode = params?.get?.('giftCode');
   const giftId = params?.get?.('giftId');
+  const txHash = params?.get?.('txHash');
+  const blockNumber = params?.get?.('blockNumber');
 
   const [copied, setCopied] = useState(false);
+  const [txCopied, setTxCopied] = useState(false);
 
-  const shareUrl = giftId
+  // Always prioritize gift code for sharing, as that's what recipients need to claim
+  const shareUrl = giftCode 
+    ? `${location.origin}/gift/claim?giftCode=${giftCode}`
+    : giftId 
     ? `${location.origin}/gift/claim?giftId=${giftId}`
-    : `${location.origin}/gift/claim${giftCode ? `?giftCode=${giftCode}` : ''}`;
+    : `${location.origin}/gift/claim`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(shareUrl);
@@ -40,7 +46,7 @@ export default function GiftReady() {
       if (navigator.share) {
         await navigator.share({
           title: 'DogeGift',
-          text: giftId ? `Here's your onchain Gift ID: ${giftId}` : `Here's your Secret Gift Code: ${giftCode ?? ''}`,
+          text: giftCode ? `Here's your Secret Gift Code: ${giftCode}` : `Here's your onchain Gift ID: ${giftId ?? ''}`,
           url: shareUrl,
         });
       } else {
@@ -103,14 +109,14 @@ export default function GiftReady() {
             Your Gift Is Ready!
           </Typography>
           <Typography fontSize={15} color="text.secondary" mb={5}>
-            {giftId
-              ? 'Share this Gift ID with the recipient so they can claim onchain.'
-              : 'You\'ve just created a gift. Share the Secret Gift Code below and make someone\'s day.'}
+            {giftCode
+              ? 'Share this Secret Gift Code with the recipient so they can claim onchain.'
+              : 'You\'ve just created a gift. Share the Gift ID below and make someone\'s day.'}
           </Typography>
 
           <Paper sx={{ p: { xs: 4, md: 6 }, borderRadius: 4 }}>
             <Typography fontWeight={700} mb={2}>
-              {giftId ? 'Onchain Gift ID' : 'Secret Gift Code'}
+              {giftCode ? 'Secret Gift Code' : 'Onchain Gift ID'}
             </Typography>
 
             <Box
@@ -126,8 +132,69 @@ export default function GiftReady() {
                 display: 'inline-block',
               }}
             >
-              {giftId ?? giftCode ?? '—'}
+              {giftCode ?? giftId ?? '—'}
             </Box>
+
+            {/* Transaction Hash Section */}
+            {txHash && (
+              <Box sx={{ mt: 3, mb: 3 }}>
+                <Typography fontWeight={700} mb={1} color="text.secondary" fontSize={14}>
+                  Transaction Hash
+                </Typography>
+                <Box
+                  sx={{
+                    bgcolor: '#f5f5f5',
+                    borderRadius: 1,
+                    px: 3,
+                    py: 1.5,
+                    mb: 2,
+                    fontFamily: 'monospace',
+                    fontSize: 14,
+                    wordBreak: 'break-all',
+                    border: '1px solid #e0e0e0',
+                  }}
+                >
+                  {txHash}
+                </Box>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center" mb={2}>
+                  <Button 
+                    variant="outlined" 
+                    size="small"
+                    startIcon={<ContentCopyIcon fontSize="small" />} 
+                    onClick={() => {
+                      navigator.clipboard.writeText(txHash);
+                      setTxCopied(true);
+                    }}
+                    sx={{ 
+                      textTransform: 'none', 
+                      fontWeight: 600,
+                    }}
+                  >
+                    {txCopied ? 'Copied!' : 'Copy Hash'}
+                  </Button>
+                  <Button 
+                    variant="contained" 
+                    size="small"
+                    onClick={() => {
+                      const explorerUrl = `https://etherscan.io/tx/${txHash}`;
+                      window.open(explorerUrl, '_blank');
+                    }}
+                    sx={{ 
+                      textTransform: 'none', 
+                      fontWeight: 600,
+                      bgcolor: '#1976d2',
+                    }}
+                  >
+                    View on Explorer
+                  </Button>
+                </Stack>
+                {blockNumber && (
+                  <Typography fontSize={12} color="text.secondary">
+                    Block: {blockNumber}
+                  </Typography>
+                )}
+              </Box>
+            )}
 
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center" mb={4}>
               <Button 
@@ -202,6 +269,15 @@ export default function GiftReady() {
           <Alert severity="success" variant="filled">
             Link copied!
           </Alert>
+        </Snackbar>
+        
+        <Snackbar
+          open={txCopied}
+          autoHideDuration={1500}
+          onClose={() => setTxCopied(false)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert severity="success">Transaction hash copied!</Alert>
         </Snackbar>
       </Section>
     </>

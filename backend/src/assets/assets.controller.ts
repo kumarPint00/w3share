@@ -94,4 +94,10 @@ export class AssetsController {
   allowList() {
     return this.assets.getAllowList();
   }
+
+  @Get('/tokens/metadata')
+  @ApiOperation({ summary: 'Get token metadata (name, symbol, decimals) by contract address' })
+  async tokenMetadata(@Query('contract') contract: string, @Query('chainId') chainId?: string) {
+    return this.assets.getTokenMetadata(contract, chainId ? Number(chainId) : 11155111);
+  }
 }

@@ -198,14 +198,51 @@ export class ClaimService {
       };
     });
 
+    // If possible, return a single batched claim transaction to claim multiple gifts in one tx
+    // This requires the GiftEscrow contract to expose `claimMultipleWithCode` / `claimMultiple`.
+    // Limit the batch size to avoid gas issues.
+    const MAX_BATCH_SIZE = Number(this.config.get<number>('MAX_BATCH_CLAIM_SIZE') || 8);
+    let batchClaim: any = null;
+    if (giftIds.length <= MAX_BATCH_SIZE) {
+      try {
+        if (useCodePath) {
+          const data = iface.encodeFunctionData('claimMultipleWithCode', [giftIds, giftCode]);
+          batchClaim = {
+            contract: this.escrowAddress!,
+            abi: GiftEscrowArtifact.abi,
+            function: 'claimMultipleWithCode',
+            args: [giftIds, giftCode],
+            data,
+            giftIds,
+          };
+        } else {
+          const data = iface.encodeFunctionData('claimMultiple', [giftIds]);
+          batchClaim = {
+            contract: this.escrowAddress!,
+            abi: GiftEscrowArtifact.abi,
+            function: 'claimMultiple',
+            args: [giftIds],
+            data,
+            giftIds,
+          };
+        }
+      } catch {
+        // If encoding fails (contract ABI mismatch), fall back to individual txs
+        batchClaim = null;
+      }
+    }
+
     const unwrapInfo = this.getUnwrapInfo(pack);
 
     return {
       isMultiToken: true,
       totalTokens: giftIds.length,
       claimTransactions,
+      batchClaim,
       chainId: this.chainId.toString(),
-      message: `This gift contains ${giftIds.length} tokens. You need to claim each token separately.`,
+      message: batchClaim
+        ? `This gift contains ${giftIds.length} tokens. You can claim them in a single transaction.`
+        : `This gift contains ${giftIds.length} tokens. You need to claim each token separately.`,
       unwrapInfo,
     };
   }

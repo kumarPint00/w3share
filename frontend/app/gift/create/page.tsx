@@ -2,7 +2,7 @@
 
 import { Container, Typography, Stack, Snackbar, Alert, Button, InputAdornment, IconButton, Tooltip, Box, Paper, TextField } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
-import { useContext, useMemo, useState } from 'react';
+import { useContext, useMemo, useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
 import Section from '@/components/Section';
@@ -33,6 +33,7 @@ const CreatePack: React.FC = () => {
   const [code, setCode] = useState<string>('');
   const [busy, setBusy] = useState<boolean>(false);
   const [lockBusy, setLockBusy] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ open: boolean; msg: string; severity: 'success'|'error' } | null>(null);
   const [packId, setPackId] = useState<string | null>(null);
 
@@ -43,6 +44,15 @@ const CreatePack: React.FC = () => {
 
   // Debug: log tokens from useWalletTokens
   console.log('CreatePack - useWalletTokens result:', { tokensCount: tokens.length, loading: tokLoading, provider: !!provider, address });
+
+  // Ensure a fresh state when landing on the Create screen.
+  // Reset leftover items from a previous flow so Gift Preview is empty on a new create.
+  useEffect(() => {
+    if (state.items && state.items.length > 0) {
+      dispatch({ type: 'reset' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleAddToken = (token: Token & { amount: number }) => {
 
@@ -181,7 +191,7 @@ const CreatePack: React.FC = () => {
 
   const handleConfirmAndLock = async () => {
     if (!packId || !code) return;
-    
+    setError(null);
     try {
       await ensureAuth();
       setLockBusy(true);
@@ -405,10 +415,15 @@ const CreatePack: React.FC = () => {
           setToast({ open: true, msg: successMsg, severity: 'success' });
           
           // Build success URL with transaction hash
-          const params = new URLSearchParams({
-            giftCode: lockRes.giftCode
-          });
-          if (lockRes.transactionHash || lockRes.txHash) {
+          // Handle multi-token response from backend
+          const params = new URLSearchParams({ giftCode: lockRes.giftCode });
+          if (Array.isArray(lockRes.giftIds) && lockRes.giftIds.length > 0) {
+            params.set('giftId', String(lockRes.giftIds[0]));
+            params.set('multi', String(lockRes.giftIds.length));
+          }
+          if (Array.isArray(lockRes.transactionHashes) && lockRes.transactionHashes.length > 0) {
+            params.set('txHashes', lockRes.transactionHashes.join(','));
+          } else if (lockRes.transactionHash || lockRes.txHash) {
             params.set('txHash', lockRes.transactionHash || lockRes.txHash);
           }
           if (lockRes.blockNumber) {
@@ -429,6 +444,8 @@ const CreatePack: React.FC = () => {
     } catch (e: any) {
       console.error('Lock gift error:', e);
       setToast({ open: true, msg: e?.message || 'Failed to lock gift on blockchain', severity: 'error' });
+      // Also surface the error in-page for clarity
+      setError(e?.message || 'Failed to lock gift on blockchain');
     } finally {
       setLockBusy(false);
     }
@@ -530,6 +547,11 @@ const CreatePack: React.FC = () => {
           >
             Choose what you want to include in your gift.
           </Typography>
+          {error && (
+            <Alert severity="error" sx={{ mt: 3 }} onClose={() => setError(null)}>
+              {error}
+            </Alert>
+          )}
         </Box>
 
   <Stack spacing={{ xs: 3, md: 4 }}>

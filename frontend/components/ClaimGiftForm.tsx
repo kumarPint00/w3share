@@ -52,6 +52,8 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
   const [codeError, setCodeError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
+  const [txHashes, setTxHashes] = useState<string[]>([]);
+  const [claimProgress, setClaimProgress] = useState<{ current: number; total: number; name?: string; status?: 'in-progress'|'done'|'failed' } | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [previewGift, setPreviewGift] = useState<any | null>(null);
@@ -76,6 +78,30 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
         } catch { }
         const allowMap: Record<string, string | any> = {};
         allow.forEach(t => { allowMap[t.contract?.toLowerCase?.()] = t; });
+
+        // Find contracts missing metadata and fetch from backend
+        const missing = new Set<string>();
+        (gift.items || []).forEach((it: any) => {
+          const key = (it.contract || '').toLowerCase();
+          if (key && key !== 'native' && !allowMap[key]) missing.add(key);
+        });
+        if (missing.size > 0) {
+          try {
+            const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+            await Promise.all(Array.from(missing).map(async (contract) => {
+              try {
+                const r = await fetch(`${backendUrl}/assets/tokens/metadata?contract=${contract}`);
+                if (r.ok) {
+                  const meta = await r.json();
+                  allowMap[contract] = meta;
+                }
+              } catch (e) { /* ignore individual failures */ }
+            }));
+          } catch (e) {
+            // ignore overall failures
+          }
+        }
+
         const enrichedItems: GiftItem[] = (gift.items || []).map((it: any, idx: number) => {
           const key = (it.contract || '').toLowerCase();
           const meta: any = allowMap[key];
@@ -85,6 +111,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
           const formatted = num >= 1 ? (num >= 1000 ? Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(num) : num.toString()) : num.toPrecision(3);
           return {
             id: it.id || String(idx),
+            contract: it.contract || '',
             name: it.contract === 'native' ? 'Ethereum' : (meta?.name || it.name || it.symbol || 'Token'),
             symbol: meta?.symbol || it.symbol,
             type: it.type === 'ERC721' ? 'NFT' : 'ERC20',
@@ -166,21 +193,95 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
       const provider = new ethers.BrowserProvider(eth);
       const signer = await provider.getSigner();
       const anyClaim: any = claimData as any; // relax type to allow contract/data
-      const tx = await signer.sendTransaction({
-        to: anyClaim.contract,
-        data: anyClaim.data,
-      });
-      setTxHash(tx.hash);
 
-      await tx.wait();
-      setSuccess(true);
+      // Handle multi-token claim responses
+      if (anyClaim.isMultiToken && Array.isArray(anyClaim.claimTransactions)) {
+        const _txHashes: string[] = [];
+        const txs = anyClaim.claimTransactions;
+
+        // If backend provided a single batched claim (and contract supports it), prefer that
+        if (anyClaim.batchClaim && anyClaim.batchClaim.data && anyClaim.batchClaim.contract) {
+          // Warn user if batch size is large
+          const batchSize = Array.isArray(anyClaim.batchClaim.giftIds) ? anyClaim.batchClaim.giftIds.length : 0;
+          if (batchSize > 4) {
+            const ok = window.confirm(`This gift contains ${batchSize} tokens and will be claimed in a single transaction. This may be expensive in gas. Continue?`);
+            if (!ok) {
+              setTxError('User cancelled batch claim');
+              throw new Error('User cancelled batch claim');
+            }
+          }
+          setClaimProgress({ current: 0, total: 1, name: 'Batch claim', status: 'in-progress' });
+          try {
+            const c = anyClaim.batchClaim;
+            const tx = await signer.sendTransaction({ to: c.contract, data: c.data });
+            _txHashes.push(tx.hash);
+            setTxHash(tx.hash);
+            await tx.wait();
+            setClaimProgress({ current: 1, total: 1, name: 'Batch claim', status: 'done' });
+            setSuccess(true);
+          } catch (err: any) {
+            setClaimProgress({ current: 1, total: 1, name: 'Batch claim', status: 'failed' });
+            setTxError(err?.message || 'Batch claim failed');
+            throw err;
+          } finally {
+            setClaimProgress(null);
+            setTxHashes(_txHashes);
+          }
+        } else {
+          setClaimProgress({ current: 0, total: txs.length, name: undefined, status: 'in-progress' });
+          for (let i = 0; i < txs.length; i++) {
+            const c = txs[i];
+            // Try to resolve a friendly name for the item: use previewGift items if lengths match
+            let friendlyName: string | undefined = undefined;
+            try {
+              if (previewGift?.items && previewGift.items.length === txs.length) {
+                const it = previewGift.items[i];
+                friendlyName = it?.name || it?.symbol || (it?.contract ? `${it.contract.slice(0,6)}...${it.contract.slice(-4)}` : undefined);
+              }
+            } catch {}
+            setClaimProgress({ current: i + 1, total: txs.length, name: friendlyName, status: 'in-progress' });
+            try {
+              const tx = await signer.sendTransaction({ to: c.contract, data: c.data });
+              _txHashes.push(tx.hash);
+              setTxHash(tx.hash);
+              setTxError(null);
+              // wait for confirmation before proceeding to next
+              await tx.wait();
+              // update progress
+              setClaimProgress({ current: i + 1, total: txs.length, name: friendlyName, status: 'done' });
+            } catch (err: any) {
+              setClaimProgress({ current: i + 1, total: txs.length, name: friendlyName, status: 'failed' });
+              setTxError(err?.message || `Failed to submit claim for giftId ${c.giftId}`);
+              // stop processing further transactions on error
+              throw err;
+            }
+          }
+          setTxHashes(_txHashes);
+          // Mark success only if all txs succeeded
+          if (_txHashes.length === anyClaim.claimTransactions.length) {
+            setSuccess(true);
+          }
+          setClaimProgress(null);
+        }
+      } else {
+        const tx = await signer.sendTransaction({
+          to: anyClaim.contract,
+          data: anyClaim.data,
+        });
+        setTxHash(tx.hash);
+        setTxHashes([tx.hash]);
+        await tx.wait();
+        setSuccess(true);
+      }
 
       if (onClaimSuccess) {
         try {
           const giftDetails = await getGiftPackDetails({ giftCode: code });
+          // provide txHashes if available
           onClaimSuccess({
             message: giftDetails?.message,
             items: giftDetails?.items || [],
+            txHashes: txHashes,
           });
         } catch (e) {
           onClaimSuccess({});
@@ -442,7 +543,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
               );
             })()}
 
-            {txHash && (
+            {txHashes.length > 0 && (
               <Alert
                 severity={success ? 'success' : 'info'}
                 sx={{
@@ -456,32 +557,64 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                 {success ? (
                   <>
                     Gift claimed successfully!{' '}
-                    <a
-                      href={`https://sepolia.etherscan.io/tx/${txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: success ? '#2e7d32' : '#1565c0', textDecoration: 'underline' }}
-                    >
-                      View on Etherscan
-                    </a>
+                    <div>
+                      {txHashes.map((h, i) => {
+                        const name = (previewGift?.items && previewGift.items.length === txHashes.length) ? (previewGift.items[i]?.name || previewGift.items[i]?.symbol) : undefined;
+                        return (
+                          <div key={h} style={{ marginTop: i === 0 ? 6 : 4 }}>
+                            <a
+                              href={`https://sepolia.etherscan.io/tx/${h}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: '#2e7d32', textDecoration: 'underline' }}
+                            >
+                              View Tx {i + 1} on Etherscan
+                            </a>
+                            {name && <span style={{ marginLeft: 8, color: '#2e7d32' }}>• {name}</span>}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </>
                 ) : (
                   <>
                     Transaction sent:{' '}
-                    <a
-                      href={`https://sepolia.etherscan.io/tx/${txHash}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: success ? '#2e7d32' : '#1565c0', textDecoration: 'underline' }}
-                    >
-                      {txHash}
-                    </a>
+                    {txHashes.map((h, i) => (
+                      <div key={h} style={{ marginTop: i === 0 ? 6 : 4 }}>
+                        <a
+                          href={`https://sepolia.etherscan.io/tx/${h}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ color: '#1565c0', textDecoration: 'underline' }}
+                        >
+                          {h}
+                        </a>
+                        {previewGift?.items && previewGift.items.length === txHashes.length && (
+                          <span style={{ marginLeft: 8, color: '#1565c0' }}>• {previewGift.items[i]?.name || previewGift.items[i]?.symbol}</span>
+                        )}
+                      </div>
+                    ))}
                   </>
                 )}
               </Alert>
             )}
             {txError && (
               <Alert severity="error" sx={{ mt: 2 }}>{txError}</Alert>
+            )}
+            {claimProgress && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                {claimProgress.status === 'in-progress' ? (
+                  <>
+                    Claiming token {claimProgress.current}/{claimProgress.total}
+                    {claimProgress.name ? `: ${claimProgress.name}` : ''}
+                    …
+                  </>
+                ) : claimProgress.status === 'failed' ? (
+                  <>{`Failed claiming ${claimProgress.name ?? ''} (${claimProgress.current}/${claimProgress.total})`}</>
+                ) : (
+                  <>{`Claim ${claimProgress.current}/${claimProgress.total} completed`}</>
+                )}
+              </Alert>
             )}
             {(success || txError) && (
               <Button

@@ -171,4 +171,25 @@ export class AssetsService {
   getAllowList() {
     return require('../config/allowedToken.json');
   }
+
+  async getTokenMetadata(contract: string, chainId: number = 11155111) {
+    if (!isAddress(contract)) {
+      throw new HttpException('Invalid contract address', HttpStatus.BAD_REQUEST);
+    }
+    try {
+      const alchemy = this.getAlchemy(chainId);
+      const meta = await alchemy.core.getTokenMetadata(contract);
+      return {
+        contract: contract,
+        symbol: meta.symbol || null,
+        name: meta.name || null,
+        decimals: meta.decimals || null,
+        logoURI: meta.logo || null,
+        chainId,
+      };
+    } catch (error) {
+      console.warn(`[getTokenMetadata] Failed for ${contract} on chain ${chainId}:`, error?.message || error);
+      throw new HttpException('Failed to fetch token metadata', HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
 }

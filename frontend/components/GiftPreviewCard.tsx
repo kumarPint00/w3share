@@ -101,9 +101,16 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
           </Avatar>
 
           <Box flex={1}>
-            <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
-              {item.name || 'Unknown Token'}
-            </Typography>
+            {/** Prefer name, then symbol, then contract short */}
+            {(() => {
+              const contractShort = item.contract ? `${item.contract.slice(0,6)}...${item.contract.slice(-4)}` : null;
+              const displayName = item.name || item.symbol || contractShort || 'Unknown Token';
+              return (
+                <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
+                  {displayName}
+                </Typography>
+              );
+            })()}
             {item.symbol && item.symbol !== item.name && (
               <Typography variant="body2" color="primary" fontWeight={500} sx={{ mb: 0.5 }}>
                 {item.symbol}
@@ -122,17 +129,18 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
           </Box>
          
         </Stack>
-          {onChainStatus?.tokenAddress && (
-                <Grid item xs={12}>
-                  <Typography variant="caption" color="text.secondary">Token Address</Typography>
-                  <Typography
-                    variant="body2"
-                    sx={{ fontFamily: 'monospace', wordBreak: 'break-all', overflowWrap: 'anywhere' }}
-                  >
-                    {onChainStatus.tokenAddress}
-                  </Typography>
-                </Grid>
-              )}
+            {/* Show per-item token address (use contract/address on the item) */}
+            {item.contract && (
+              <Grid item xs={12}>
+                <Typography variant="caption" color="text.secondary">Token Address</Typography>
+                <Typography
+                  variant="body2"
+                  sx={{ fontFamily: 'monospace', wordBreak: 'break-all', overflowWrap: 'anywhere' }}
+                >
+                  {item.contract}
+                </Typography>
+              </Grid>
+            )}
       </Paper>
     </Zoom>
   );

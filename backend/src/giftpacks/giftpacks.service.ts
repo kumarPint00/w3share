@@ -512,15 +512,18 @@ export class GiftpacksService {
 
       // Persist multi-onchain info
       if (giftIds.length > 1) {
-        await this.prisma.giftPack.update({
-          where: { id: pack.id },
-          data: {
-            status: 'LOCKED',
-            giftIdOnChain: giftIds[0],
-            giftIdsOnChain: JSON.stringify(giftIds),
-            giftCode: giftCode,
-          },
-        });
+        // Use a raw SQL update here to avoid relying on a regenerated Prisma client
+        // that may not yet include the `giftIdsOnChain` field during incremental
+        // rollouts (this is a safe, parameterized query).
+        const giftIdsJson = JSON.stringify(giftIds);
+        await this.prisma.$executeRaw`
+          UPDATE "GiftPack"
+          SET "status" = 'LOCKED',
+              "giftIdOnChain" = ${giftIds[0]},
+              "giftIdsOnChain" = ${giftIdsJson},
+              "giftCode" = ${giftCode}
+          WHERE "id" = ${pack.id}
+        `;
       } else if (giftIds.length === 1) {
         await this.prisma.giftPack.update({
           where: { id: pack.id },

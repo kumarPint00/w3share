@@ -32,6 +32,7 @@ export default function GiftReady() {
 
   const [copied, setCopied] = useState(false);
   const [txCopied, setTxCopied] = useState(false);
+  const escrowCtx = useContext(EscrowContext);
 
   // Always prioritize gift code for sharing, as that's what recipients need to claim
   const shareUrl = giftCode 
@@ -260,8 +261,10 @@ export default function GiftReady() {
               }}
               onClick={() => {
                 try {
-                  const [, dispatch] = useContext(EscrowContext)!;
-                  dispatch({ type: 'reset' });
+                  if (escrowCtx && Array.isArray(escrowCtx) && typeof escrowCtx[1] === 'function') {
+                    const dispatch = escrowCtx[1] as any;
+                    dispatch({ type: 'reset' });
+                  }
                 } catch (err) {
                   // ignore if context not available
                 }

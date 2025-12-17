@@ -8,7 +8,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Token } from '@/types/token';
 import TokenPickerV2 from './TokenS';
 import { useWallet } from '@/context/WalletContext';
@@ -29,6 +29,27 @@ export default function TokenAddCard({ tokens, loading, onAdd }: Props) {
 
   const selected = tokens.find((t) => t.id === tokenId) || null;
   const amountNum = Number(amount);
+
+  const currencyFormatter = useMemo(() => new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }), []);
+
+  const pricePerToken = useMemo(() => {
+    if (!selected) return undefined;
+    if (typeof (selected as any).priceUsd === 'number' && !Number.isNaN((selected as any).priceUsd)) return (selected as any).priceUsd;
+    if (typeof selected.usd === 'number' && typeof selected.balance === 'number' && selected.balance > 0) {
+      return selected.usd / selected.balance;
+    }
+    return undefined;
+  }, [selected]);
+
+  const amountUsd = useMemo(() => {
+    if (!selected || !amount || Number.isNaN(amountNum) || !pricePerToken) return null;
+    return amountNum * pricePerToken;
+  }, [selected, amount, amountNum, pricePerToken]);
 
   const validateDecimals = (v: string) => {
     if (!v) return null;
@@ -142,6 +163,11 @@ export default function TokenAddCard({ tokens, loading, onAdd }: Props) {
           {selected && (
             <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
               Balance: {selected.balance ?? 0} {selected.symbol}
+            </Typography>
+          )}
+          {selected && amount && amountUsd !== null && (
+            <Typography variant="caption" color="text.secondary" mt={0.5} display="block">
+              ≈ {currencyFormatter.format(amountUsd)}
             </Typography>
           )}
         </Grid>

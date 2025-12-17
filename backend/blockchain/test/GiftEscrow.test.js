@@ -15,7 +15,7 @@ describe('GiftEscrow', function () {
                     return [4 /*yield*/, Factory.deploy()];
                 case 2:
                     giftEscrow = _a.sent();
-                    return [4 /*yield*/, giftEscrow.deployed()];
+                    return [4 /*yield*/, giftEscrow.waitForDeployment()];
                 case 3:
                     _a.sent();
                     return [2 /*return*/];
@@ -29,9 +29,4 @@ describe('GiftEscrow', function () {
         });
     }); });
 });
-const { describe, it } = require('mocha');
-describe('GiftEscrow placeholder JS', function () {
-    it('has minimal test', function () { });
-});
-
 module.exports = {};

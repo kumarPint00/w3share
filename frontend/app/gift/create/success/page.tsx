@@ -11,10 +11,11 @@ import {
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ShareIcon from '@mui/icons-material/Share';
-import { useState } from 'react';
+import { useState, useContext } from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Section from '@/components/Section';
+import EscrowContext from '@/context/EscrowContext';
 export const dynamic = 'force-dynamic';
 
 export default function GiftReady() {
@@ -24,10 +25,14 @@ export default function GiftReady() {
   const giftCode = params?.get?.('giftCode');
   const giftId = params?.get?.('giftId');
   const txHash = params?.get?.('txHash');
+  const txHashesParam = params?.get?.('txHashes');
+  const multiCount = params?.get?.('multi');
+  const txHashes = txHashesParam ? txHashesParam.split(',') : (txHash ? [txHash] : []);
   const blockNumber = params?.get?.('blockNumber');
 
   const [copied, setCopied] = useState(false);
   const [txCopied, setTxCopied] = useState(false);
+  const escrowCtx = useContext(EscrowContext);
 
   // Always prioritize gift code for sharing, as that's what recipients need to claim
   const shareUrl = giftCode 
@@ -136,58 +141,54 @@ export default function GiftReady() {
             </Box>
 
             {/* Transaction Hash Section */}
-            {txHash && (
+            {txHashes.length > 0 && (
               <Box sx={{ mt: 3, mb: 3 }}>
                 <Typography fontWeight={700} mb={1} color="text.secondary" fontSize={14}>
-                  Transaction Hash
+                  Transaction {txHashes.length > 1 ? 'Hashes' : 'Hash'} {multiCount ? `(${multiCount} tokens)` : ''}
                 </Typography>
-                <Box
-                  sx={{
-                    bgcolor: '#f5f5f5',
-                    borderRadius: 1,
-                    px: 3,
-                    py: 1.5,
-                    mb: 2,
-                    fontFamily: 'monospace',
-                    fontSize: 14,
-                    wordBreak: 'break-all',
-                    border: '1px solid #e0e0e0',
-                  }}
-                >
-                  {txHash}
-                </Box>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="center" mb={2}>
-                  <Button 
-                    variant="outlined" 
-                    size="small"
-                    startIcon={<ContentCopyIcon fontSize="small" />} 
-                    onClick={() => {
-                      navigator.clipboard.writeText(txHash);
-                      setTxCopied(true);
-                    }}
-                    sx={{ 
-                      textTransform: 'none', 
-                      fontWeight: 600,
+                {txHashes.map((h, i) => (
+                  <Box
+                    key={`tx-${i}`}
+                    sx={{
+                      bgcolor: '#f5f5f5',
+                      borderRadius: 1,
+                      px: 3,
+                      py: 1.5,
+                      mb: 1,
+                      fontFamily: 'monospace',
+                      fontSize: 14,
+                      wordBreak: 'break-all',
+                      border: '1px solid #e0e0e0',
                     }}
                   >
-                    {txCopied ? 'Copied!' : 'Copy Hash'}
-                  </Button>
-                  <Button 
-                    variant="contained" 
-                    size="small"
-                    onClick={() => {
-                      const explorerUrl = `https://etherscan.io/tx/${txHash}`;
-                      window.open(explorerUrl, '_blank');
-                    }}
-                    sx={{ 
-                      textTransform: 'none', 
-                      fontWeight: 600,
-                      bgcolor: '#1976d2',
-                    }}
-                  >
-                    View on Explorer
-                  </Button>
-                </Stack>
+                    {h}
+                    <Stack direction="row" spacing={1} justifyContent="flex-end" sx={{ mt: 1 }}>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<ContentCopyIcon fontSize="small" />}
+                        onClick={() => {
+                          navigator.clipboard.writeText(h);
+                          setTxCopied(true);
+                        }}
+                        sx={{ textTransform: 'none', fontWeight: 600, mr: 1 }}
+                      >
+                        Copy
+                      </Button>
+                      <Button
+                        variant="contained"
+                        size="small"
+                        onClick={() => {
+                          const explorerUrl = `https://etherscan.io/tx/${h}`;
+                          window.open(explorerUrl, '_blank');
+                        }}
+                        sx={{ textTransform: 'none', fontWeight: 600, bgcolor: '#1976d2' }}
+                      >
+                        View
+                      </Button>
+                    </Stack>
+                  </Box>
+                ))}
                 {blockNumber && (
                   <Typography fontSize={12} color="text.secondary">
                     Block: {blockNumber}
@@ -258,7 +259,17 @@ export default function GiftReady() {
                   color: '#ffffff'
                 }
               }}
-              onClick={() => router.push('/gift/create')}
+              onClick={() => {
+                try {
+                  if (escrowCtx && Array.isArray(escrowCtx) && typeof escrowCtx[1] === 'function') {
+                    const dispatch = escrowCtx[1] as any;
+                    dispatch({ type: 'reset' });
+                  }
+                } catch (err) {
+                  // ignore if context not available
+                }
+                router.push('/gift/create');
+              }}
             >
               Create Another Gift
             </Button>

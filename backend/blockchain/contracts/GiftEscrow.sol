@@ -3,8 +3,23 @@ pragma solidity ^0.8.0;
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import '@openzeppelin/contracts/token/ERC721/IERC721.sol';
-
+// Lightweight Reentrancy protection (avoid external dependency mismatch)
 contract GiftEscrow {
+    // Reentrancy guard status
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    uint256 private _status;
+
+    constructor() {
+        _status = _NOT_ENTERED;
+    }
+
+    modifier nonReentrant() {
+        require(_status != _ENTERED, "ReentrancyGuard: reentrant call");
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
+    }
     /**
      * @dev Validates parameters for locking a gift. Returns true if valid, false otherwise, with a reason string.
      * This is a view function for off-chain validation before calling lockGift/lockGiftV2.
@@ -87,6 +102,7 @@ contract GiftEscrow {
 
     event GiftMetaSet(uint256 indexed giftId, string message, bool hasCode);
     event GiftClaimedWithCode(uint256 indexed giftId, address indexed claimer);
+    event GiftBatchClaimed(uint256[] giftIds, address indexed claimer);
 
 
     event GiftSent(
@@ -223,6 +239,45 @@ contract GiftEscrow {
         _payout(g, msg.sender);
 
         emit GiftClaimedWithCode(giftId, msg.sender);
+    }
+
+    /**
+     * @notice Claim multiple gifts (that share the same secret code) in a single transaction.
+     * @dev This will mark each gift as claimed and payout each asset to the caller.
+     * Uses ReentrancyGuard and follows checks-effects-interactions pattern.
+     */
+    function claimMultipleWithCode(uint256[] calldata giftIds, string calldata code) external nonReentrant {
+        bytes32 expected = keccak256(abi.encodePacked(code));
+        for (uint256 i = 0; i < giftIds.length; i++) {
+            uint256 id = giftIds[i];
+            Gift storage g = gifts[id];
+            require(!g.claimed, 'Already claimed');
+            require(block.timestamp <= g.expiryTimestamp, 'Expired');
+            require(g.codeHash != bytes32(0), 'No code set');
+            require(g.codeHash == expected, 'Invalid code');
+
+            g.claimed = true;
+            _payout(g, msg.sender);
+            emit GiftClaimedWithCode(id, msg.sender);
+        }
+        emit GiftBatchClaimed(giftIds, msg.sender);
+    }
+
+    /**
+     * @notice Claim multiple gifts which do not require a code (e.g., public gifts), in a single transaction.
+     */
+    function claimMultiple(uint256[] calldata giftIds) external nonReentrant {
+        for (uint256 i = 0; i < giftIds.length; i++) {
+            uint256 id = giftIds[i];
+            Gift storage g = gifts[id];
+            require(!g.claimed, 'Already claimed');
+            require(block.timestamp <= g.expiryTimestamp, 'Expired');
+
+            g.claimed = true;
+            _payout(g, msg.sender);
+            emit GiftClaimed(id, msg.sender);
+        }
+        emit GiftBatchClaimed(giftIds, msg.sender);
     }
 
     function refundExpired(uint256[] calldata ids) external {

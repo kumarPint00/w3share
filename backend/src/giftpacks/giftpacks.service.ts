@@ -451,7 +451,6 @@ export class GiftpacksService {
         where: { id: pack.id },
         data: {
           status: 'LOCKED',
-          giftIdOnChain: 1, // Placeholder - using codeHash in contract
           giftCode: giftCode,
         },
       });

@@ -19,18 +19,18 @@ model WalletNonce {
 
 /// Represents a draft or locked on-chain gift pack
 model GiftPack {
-  id            String      @id @default(uuid())
-  senderAddress String      @db.VarChar(42)
-  message       String?     @db.Text
-  expiry        DateTime    @default(now())
-  status        GiftStatus  @default(DRAFT)
-  giftIdOnChain Int?        @unique
-  giftIdsOnChain String?   // JSON array of giftIds for multi-token gifts
-  giftCode      String?     @unique
-  items         GiftItem[]
-  claimTasks    ClaimTask[]
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id             String      @id @default(uuid())
+  senderAddress  String      @db.VarChar(42)
+  message        String?     @db.Text
+  expiry         DateTime    @default(now())
+  status         GiftStatus  @default(DRAFT)
+  giftIdOnChain  Int?        @unique
+  giftIdsOnChain String? // JSON array of giftIds for multi-token gifts
+  giftCode       String?     @unique
+  items          GiftItem[]
+  claimTasks     ClaimTask[]
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 }
 
 enum GiftStatus {

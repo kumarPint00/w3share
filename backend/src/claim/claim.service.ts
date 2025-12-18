@@ -19,8 +19,6 @@ export class ClaimService {
   private isClaimingEnabled: boolean = false;
   private mockClaiming: boolean = false;
   private chainId: bigint = 11155111n;
-  private wrappedNativeAddress: string | null = null;
-  private autoUnwrapWeth: boolean = false;
 
   constructor(
     private prisma: PrismaService,
@@ -35,8 +33,6 @@ export class ClaimService {
       const apiKey = this.config.get<string>('GELATO_API_KEY');
       const escrowAddr = this.config.get<string>('GIFT_ESCROW_ADDRESS');
       const chainIdStr = this.config.get<string>('SEPOLIA_CHAIN_ID') || '11155111';
-      this.wrappedNativeAddress = this.config.get<string>('WRAPPED_NATIVE_ADDRESS') || null;
-      this.autoUnwrapWeth = (this.config.get<string>('AUTO_UNWRAP_WETH') || '').toLowerCase() === 'true';
 
       try {
         this.chainId = BigInt(chainIdStr);
@@ -135,28 +131,42 @@ export class ClaimService {
       });
     }
 
-    // Check if this is a multi-token gift
-    const allGiftIds = this.getAllGiftIds(pack);
     const giftCode = pack.giftCode ? String(pack.giftCode).trim() : '';
     const useCodePath = giftCode.length > 0;
 
-    if (allGiftIds.length > 1) {
-      // Multi-token gift - return multiple claim transactions
-      return this.createMultiTokenClaimResponse(allGiftIds, giftCode, useCodePath, pack);
-    } else {
-      // Single token gift - existing logic
+    // Use the new GiftPack model which stores all assets in a single pack
+    // identified by code hash instead of individual gift IDs
+    if (useCodePath) {
       const iface = new ethers.Interface(GiftEscrowArtifact.abi);
-      const data = useCodePath
-        ? iface.encodeFunctionData('claimGiftWithCode', [giftId, giftCode])
-        : iface.encodeFunctionData('claimGift', [giftId]);
+      const codeHash = ethers.keccak256(ethers.toUtf8Bytes(giftCode));
+      const data = iface.encodeFunctionData('claimGiftPackWithCode', [codeHash, giftCode]);
 
       const unwrapInfo = this.getUnwrapInfo(pack);
 
       return {
         contract: this.escrowAddress!,
         abi: GiftEscrowArtifact.abi,
-        function: useCodePath ? 'claimGiftWithCode' : 'claimGift',
-        args: useCodePath ? [giftId, giftCode] : [giftId],
+        function: 'claimGiftPackWithCode',
+        args: [codeHash, giftCode],
+        data,
+        chainId: this.chainId.toString(),
+        message: pack.items.length > 1 
+          ? `This gift contains ${pack.items.length} tokens. Claim them all in one transaction.`
+          : 'Call this contract method from your wallet to claim.',
+        unwrapInfo,
+      };
+    } else {
+      // Non-code path (shouldn't be used with new model, but kept for compatibility)
+      const iface = new ethers.Interface(GiftEscrowArtifact.abi);
+      const data = iface.encodeFunctionData('claimGift', [giftId]);
+
+      const unwrapInfo = this.getUnwrapInfo(pack);
+
+      return {
+        contract: this.escrowAddress!,
+        abi: GiftEscrowArtifact.abi,
+        function: 'claimGift',
+        args: [giftId],
         data,
         chainId: this.chainId.toString(),
         message: 'Call this contract method from your wallet to claim.',
@@ -166,126 +176,21 @@ export class ClaimService {
   }
 
   private getAllGiftIds(pack: any): number[] {
-    // If giftIdsOnChain exists (multi-token), parse it
+    // Legacy method - kept for compatibility but not used with new GiftPack model
+    // New model uses code hash instead of sequential gift IDs
     if (pack.giftIdsOnChain) {
       try {
         return JSON.parse(pack.giftIdsOnChain);
       } catch {
-        // Fallback to single gift ID
         return pack.giftIdOnChain ? [pack.giftIdOnChain] : [];
       }
     }
-    // Single token gift
     return pack.giftIdOnChain ? [pack.giftIdOnChain] : [];
   }
 
-  private createMultiTokenClaimResponse(giftIds: number[], giftCode: string, useCodePath: boolean, pack: any) {
-    const iface = new ethers.Interface(GiftEscrowArtifact.abi);
-    
-    // Create claim transactions for each gift ID
-    const claimTransactions = giftIds.map(giftId => {
-      const data = useCodePath
-        ? iface.encodeFunctionData('claimGiftWithCode', [giftId, giftCode])
-        : iface.encodeFunctionData('claimGift', [giftId]);
-
-      return {
-        contract: this.escrowAddress!,
-        abi: GiftEscrowArtifact.abi,
-        function: useCodePath ? 'claimGiftWithCode' : 'claimGift',
-        args: useCodePath ? [giftId, giftCode] : [giftId],
-        data,
-        giftId,
-      };
-    });
-
-    // If possible, return a single batched claim transaction to claim multiple gifts in one tx
-    // This requires the GiftEscrow contract to expose `claimMultipleWithCode` / `claimMultiple`.
-    // Limit the batch size to avoid gas issues.
-    const MAX_BATCH_SIZE = Number(this.config.get<number>('MAX_BATCH_CLAIM_SIZE') || 8);
-    let batchClaim: any = null;
-    if (giftIds.length <= MAX_BATCH_SIZE) {
-      try {
-        if (useCodePath) {
-          const data = iface.encodeFunctionData('claimMultipleWithCode', [giftIds, giftCode]);
-          batchClaim = {
-            contract: this.escrowAddress!,
-            abi: GiftEscrowArtifact.abi,
-            function: 'claimMultipleWithCode',
-            args: [giftIds, giftCode],
-            data,
-            giftIds,
-          };
-        } else {
-          const data = iface.encodeFunctionData('claimMultiple', [giftIds]);
-          batchClaim = {
-            contract: this.escrowAddress!,
-            abi: GiftEscrowArtifact.abi,
-            function: 'claimMultiple',
-            args: [giftIds],
-            data,
-            giftIds,
-          };
-        }
-      } catch {
-        // If encoding fails (contract ABI mismatch), fall back to individual txs
-        batchClaim = null;
-      }
-    }
-
-    const unwrapInfo = this.getUnwrapInfo(pack);
-
-    return {
-      isMultiToken: true,
-      totalTokens: giftIds.length,
-      claimTransactions,
-      batchClaim,
-      chainId: this.chainId.toString(),
-      message: batchClaim
-        ? `This gift contains ${giftIds.length} tokens. You can claim them in a single transaction.`
-        : `This gift contains ${giftIds.length} tokens. You need to claim each token separately.`,
-      unwrapInfo,
-    };
-  }
-
   private getUnwrapInfo(pack: any) {
-    if (!this.autoUnwrapWeth || !this.wrappedNativeAddress) {
-      return null;
-    }
-
-
-    const hasWETH = pack.items?.some((item: any) =>
-      item.contract?.toLowerCase() === this.wrappedNativeAddress!.toLowerCase(),
-    );
-
-    if (!hasWETH) {
-      return null;
-    }
-
-
-    const wethAbi = ['function withdraw(uint256 wad) public'];
-    const wethInterface = new ethers.Interface(wethAbi);
-    const wethItem = pack.items.find((item: any) =>
-      item.contract?.toLowerCase() === this.wrappedNativeAddress!.toLowerCase(),
-    );
-
-    if (wethItem) {
-      return {
-        shouldUnwrap: true,
-        wethContract: this.wrappedNativeAddress,
-        wethAmount: wethItem.amount,
-        unwrapData: wethInterface.encodeFunctionData('withdraw', [
-          wethItem.amount,
-        ]),
-        message:
-          'After claiming, call withdraw() on WETH contract to convert WETH to ETH',
-        instructions: [
-          '1. First claim your gift from the GiftEscrow contract',
-          '2. Then call withdraw() on the WETH contract to convert WETH to ETH',
-          '3. You will receive native ETH in your wallet',
-        ],
-      };
-    }
-
+    // Since we're no longer wrapping ETH, there's nothing to unwrap
+    // Native ETH is transferred directly from the contract
     return null;
   }
 
@@ -305,6 +210,7 @@ export class ClaimService {
 
     const pack = await this.prisma.giftPack.findFirst({
       where: { giftCode: code },
+      include: { items: true },
     });
     if (!pack || pack.status !== 'LOCKED') {
       throw new NotFoundException({
@@ -312,13 +218,25 @@ export class ClaimService {
       });
     }
 
-    if (pack.giftIdOnChain == null) {
-      throw new BadRequestException({
-        message: 'Gift is not linked to an on-chain giftId',
-      });
-    }
+    // With the new GiftPack model, we use code hash instead of sequential IDs
+    const iface = new ethers.Interface(GiftEscrowArtifact.abi);
+    const codeHash = ethers.keccak256(ethers.toUtf8Bytes(code));
+    const data = iface.encodeFunctionData('claimGiftPackWithCode', [codeHash, code]);
 
-    return this.submitClaimById(pack.giftIdOnChain, claimer);
+    const unwrapInfo = this.getUnwrapInfo(pack);
+
+    return {
+      contract: this.escrowAddress!,
+      abi: GiftEscrowArtifact.abi,
+      function: 'claimGiftPackWithCode',
+      args: [codeHash, code],
+      data,
+      chainId: this.chainId.toString(),
+      message: pack.items.length > 1 
+        ? `This gift contains ${pack.items.length} tokens. Claim them all in one transaction.`
+        : 'Call this contract method from your wallet to claim.',
+      unwrapInfo,
+    };
   }
 
   async getStatusById(giftId: number): Promise<{ status: string; taskId: string | null }> {

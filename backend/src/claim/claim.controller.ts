@@ -14,36 +14,30 @@ export class ClaimController {
   async submit(@Body() dto: ClaimDto & { giftId?: number | string; giftCode?: string }) {
     if (!dto) throw new BadRequestException('Body required');
 
-    const hasNumeric = dto.giftId !== undefined && dto.giftId !== null && `${dto.giftId}`.trim() !== '';
     const hasCode = typeof dto.giftCode === 'string' && dto.giftCode.trim().length > 0;
 
-    if (!hasNumeric && !hasCode) {
-      throw new BadRequestException('Provide either giftId (number) or giftCode (string)');
+    if (!hasCode) {
+      throw new BadRequestException('giftCode is required');
     }
 
     if (!dto.claimer || typeof dto.claimer !== 'string') {
       throw new BadRequestException('claimer is required');
     }
 
-    if (hasNumeric) {
-      const n = typeof dto.giftId === 'string' ? Number.parseInt(dto.giftId as any, 10) : (dto.giftId as number);
-      if (!Number.isFinite(n)) throw new BadRequestException('giftId must be a number');
-      return this.claimService.submitClaimById(n, dto.claimer);
-    }
-
+    // Use giftCode to look up the gift and claim it
     return this.claimService.submitClaimByCode(dto.giftCode!.trim(), dto.claimer);
   }
 
-  @Post('id/:giftId')
-  @ApiOperation({ summary: 'Get claim transaction data for a gift by ID' })
-  @ApiParam({ name: 'giftId', description: 'On-chain gift ID (number)' })
+  @Post('code/:giftCode')
+  @ApiOperation({ summary: 'Get claim transaction data for a gift by code' })
+  @ApiParam({ name: 'giftCode', description: 'Gift code (string)' })
   @ApiOkResponse({
     schema: {
       example: {
         contract: '0x...',
         abi: [],
-        function: 'claimGift',
-        args: [123],
+        function: 'claimGiftPackWithCode',
+        args: ['0x...', 'giftcode'],
         data: '0x...',
         chainId: '11155111',
         message: 'Call this contract method from your wallet to claim.',
@@ -51,18 +45,18 @@ export class ClaimController {
       },
     },
   })
-  async getClaimDataById(
-    @Param('giftId') giftId: string,
+  async getClaimDataByCode(
+    @Param('giftCode') giftCode: string,
     @Body() dto: { claimer: string },
   ) {
-    const n = Number.parseInt(giftId, 10);
-    if (!Number.isFinite(n)) {
-      throw new BadRequestException('giftId must be a number');
+    const code = (giftCode || '').trim();
+    if (!code) {
+      throw new BadRequestException('giftCode is required');
     }
     if (!dto.claimer || typeof dto.claimer !== 'string') {
       throw new BadRequestException('claimer is required');
     }
-    return this.claimService.submitClaimById(n, dto.claimer);
+    return this.claimService.submitClaimByCode(code, dto.claimer);
   }
 
   @Get('status/:giftRef')

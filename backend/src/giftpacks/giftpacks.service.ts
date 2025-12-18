@@ -318,230 +318,166 @@ export class GiftpacksService {
     }
 
     try {
-      // Support locking multiple items in a single gift pack via backend
-      const giftIds: number[] = [];
-      const txHashes: string[] = [];
-
+      const escrow: any = this.escrowContract!;
       const expiryTs = Math.floor(new Date(pack.expiry).getTime() / 1000);
+      const codeHash = ethers.keccak256(ethers.toUtf8Bytes(giftCode));
+      const message = (pack as any).message || '';
+      const escrowAddress = this.getEscrowAddress();
 
+      // Step 1: Validate all items and ensure approvals before locking
       for (const it of pack.items) {
         const raw = String(it.contract || '');
         const isNative = raw.toLowerCase() === 'native';
         let tokenAddress = raw;
+        let assetTypeNum: number;
+
         if (isNative) {
-          if (this.nativeTokenPolicy === 'disallow') {
-            throw new BadRequestException({
-              error: 'NATIVE_NOT_ALLOWED',
-              message: 'Native token is not supported for smart contract gifts',
-            });
-          }
-          if (this.nativeTokenPolicy === 'allow' || this.nativeTokenPolicy === 'wrap') {
-            if (!this.wrappedNativeAddress) {
-              throw new BadRequestException({
-                error: 'WRAPPED_ADDRESS_MISSING',
-                message: 'WRAPPED_NATIVE_ADDRESS is not configured but native token was provided',
-              });
-            }
-            tokenAddress = this.wrappedNativeAddress;
-          }
+          // For native ETH, use type 2 and ZeroAddress for tokenAddress
+          tokenAddress = ethers.ZeroAddress;
+          assetTypeNum = 2; // ETH type
+        } else {
+          // For ERC20/ERC721, use the contract type
+          assetTypeNum = this.assetTypeToNumber(it.type as AssetType);
         }
 
-        const assetTypeNum = this.assetTypeToNumber(it.type as AssetType);
         const amount = BigInt(it.amount ?? 0);
         const tokenId = BigInt(it.tokenId ?? 0);
 
-        const escrowAddress = this.getEscrowAddress();
-        await this.ensureApproval(it.type as AssetType, tokenAddress, escrowAddress, amount, tokenId);
+        // Only ensure approval for ERC20 and ERC721 (not native ETH)
+        if (!isNative && it.type === 'ERC20') {
+          await this.ensureApproval(it.type as AssetType, tokenAddress, escrowAddress, amount, tokenId);
+        }
 
-        const codeHash = ethers.keccak256(ethers.toUtf8Bytes(giftCode));
-        const message = (pack as any).message || '';
-
-
-      // Debug: Check balance and approval for ERC20 items
-      if (it.type === 'ERC20') {
-        const erc20 = new Contract(
-          tokenAddress,
-          ['function balanceOf(address) view returns (uint256)', 'function allowance(address,address) view returns (uint256)'],
-          this.signer,
-        );
-        const balance = await erc20.balanceOf(this.signer!.address);
-        const allowance = await erc20.allowance(this.signer!.address, escrowAddress);
-        console.log('[DEBUG] WETH balance:', balance.toString(), 'Allowance:', allowance.toString(), 'Required:', amount.toString());
-        
-        if (balance < amount) {
-          // If user doesn't have enough WETH but has native ETH, wrap it automatically
-          if (isNative && this.nativeTokenPolicy === 'allow') {
-            console.log('[DEBUG] Attempting to wrap ETH to WETH automatically');
-            await this.wrapEthToWeth(amount);
-            
-            // Check balance again after wrapping
-            const newBalance = await erc20.balanceOf(this.signer!.address);
-            if (newBalance < amount) {
-              throw new BadRequestException({
-                error: 'INSUFFICIENT_BALANCE_AFTER_WRAP',
-                message: `Failed to wrap enough ETH to WETH. Have: ${newBalance.toString()}, Need: ${amount.toString()}`,
-              });
-            }
-          } else {
+        // Debug: Check balance and approval for ERC20 items
+        if (it.type === 'ERC20' && !isNative) {
+          const erc20 = new Contract(
+            tokenAddress,
+            ['function balanceOf(address) view returns (uint256)', 'function allowance(address,address) view returns (uint256)'],
+            this.signer,
+          );
+          const balance = await erc20.balanceOf(this.signer!.address);
+          const allowance = await erc20.allowance(this.signer!.address, escrowAddress);
+          console.log('[DEBUG] ERC20 balance:', balance.toString(), 'Allowance:', allowance.toString(), 'Required:', amount.toString());
+          
+          if (balance < amount) {
             throw new BadRequestException({
               error: 'INSUFFICIENT_BALANCE',
-              message: `Insufficient WETH balance. Have: ${balance.toString()}, Need: ${amount.toString()}`,
+              message: `Insufficient token balance. Have: ${balance.toString()}, Need: ${amount.toString()}`,
             });
           }
-        }
-        if (allowance < amount) {
-          throw new BadRequestException({
-            error: 'INSUFFICIENT_ALLOWANCE',
-            message: `Insufficient WETH allowance. Have: ${allowance.toString()}, Need: ${amount.toString()}`,
-          });
-        }
-      }
-      try {
-        const [isValid, reason] = await this.escrowContract!.validateGiftForLocking(
-          assetTypeNum,
-          tokenAddress,
-          tokenId,
-          amount,
-          expiryTs,
-          message,
-          codeHash,
-        );
-        if (!isValid) {
-          throw new BadRequestException({
-            error: 'CONTRACT_VALIDATION_FAILED',
-            message: `Contract validation failed: ${reason}`,
-          });
-        }
-      } catch (validationError: any) {
-        if (validationError?.error === 'CONTRACT_VALIDATION_FAILED') {
-          throw validationError;
-        }
-        console.warn('Contract validation call failed, proceeding with lock attempt:', validationError?.message);
-      }
-
-        const escrow: any = this.escrowContract!;
-
-        console.log('[GiftEscrow] lockGift params:', {
-          assetTypeNum,
-          tokenAddress,
-          tokenId,
-          amount,
-          expiryTs,
-          message,
-          codeHash,
-        });
-
-        let tx;
-        if (typeof escrow.lockGiftV2 === 'function') {
-          try {
-            await (escrow.lockGiftV2 as any).estimateGas(
-              assetTypeNum,
-              tokenAddress,
-              tokenId,
-              amount,
-              expiryTs,
-              message,
-              codeHash,
-            );
-          } catch (estimateError: any) {
-            console.error('Gas estimation failed:', estimateError);
+          if (allowance < amount) {
             throw new BadRequestException({
-              error: 'GAS_ESTIMATION_FAILED',
-              message: `Transaction would fail: ${estimateError?.reason || estimateError?.message || 'Unknown error'}`,
+              error: 'INSUFFICIENT_ALLOWANCE',
+              message: `Insufficient token allowance. Have: ${allowance.toString()}, Need: ${amount.toString()}`,
             });
           }
+        }
+      }
 
-          tx = await (escrow.lockGiftV2 as any)(
+      console.log('[GiftEscrow] Creating Gift Pack with params:', {
+        expiryTs,
+        message,
+        codeHash,
+      });
+
+      let tx;
+      
+      // NEW FLOW: Create gift pack once, add all assets, then lock
+      try {
+        // Step 1: Create the gift pack
+        const createTx = await escrow.createGiftPack(expiryTs, message, codeHash);
+        const createReceipt = await createTx.wait();
+        console.log('[GiftEscrow] Gift pack created:', createReceipt.hash);
+
+        // Step 2: Add all assets to the gift pack
+        for (const it of pack.items) {
+          const raw = String(it.contract || '');
+          const isNative = raw.toLowerCase() === 'native';
+          let tokenAddress = raw;
+          let assetTypeNum: number;
+
+          if (isNative) {
+            // For native ETH, use type 2 and ZeroAddress for tokenAddress
+            tokenAddress = ethers.ZeroAddress;
+            assetTypeNum = 2; // ETH type
+          } else {
+            // For ERC20/ERC721, use the contract type
+            assetTypeNum = this.assetTypeToNumber(it.type as AssetType);
+          }
+
+          const amount = BigInt(it.amount ?? 0);
+          const tokenId = BigInt(it.tokenId ?? 0);
+
+          let txOptions: any = {};
+          if (isNative) {
+            // For ETH, pass value as tx option
+            txOptions.value = amount;
+          }
+
+          const addAssetTx = await escrow.addAssetToGiftPack(
+            codeHash,
             assetTypeNum,
             tokenAddress,
             tokenId,
             amount,
-            expiryTs,
-            message,
-            codeHash,
+            txOptions
           );
-        } else if (
-          typeof escrow.lockGift === 'function' ||
-          typeof escrow.lock === 'function' ||
-          typeof escrow.createGift === 'function' ||
-          typeof escrow.lockAssets === 'function'
-        ) {
-          const lockFn: ((...args: any[]) => Promise<any>) | undefined =
-            escrow.lockGift || escrow.lock || escrow.createGift || escrow.lockAssets;
-          if (!lockFn) {
-            throw new ServiceUnavailableException({
-              error: 'ABI_MISMATCH',
-              message: 'Escrow contract ABI mismatch: missing lockGiftV2/lockGift/lock/createGift/lockAssets method',
-            });
-          }
-          try {
-            tx = await lockFn(assetTypeNum, tokenAddress, tokenId, amount, expiryTs);
-          } catch {
-            tx = await lockFn(tokenAddress, assetTypeNum, tokenId, amount, expiryTs);
-          }
-        } else {
-          throw new ServiceUnavailableException({
-            error: 'ABI_MISMATCH',
-            message: 'Escrow contract ABI mismatch: missing lockGiftV2/lockGift/lock/createGift/lockAssets method',
-          });
+          const addAssetReceipt = await addAssetTx.wait();
+          console.log('[GiftEscrow] Asset added to gift pack:', addAssetReceipt.hash);
         }
 
-        const receipt = await tx.wait();
-        let giftIdOnChain: number | null = null;
-        try {
-          const iface = (this.escrowContract as any)?.interface;
-          if (iface && receipt?.logs?.length) {
-            for (const log of receipt.logs) {
-              try {
-                const parsed = iface.parseLog(log);
-                if (parsed && parsed.name === 'GiftLocked' && parsed.args?.giftId != null) {
-                  const g = parsed.args.giftId;
-                  giftIdOnChain = typeof g === 'bigint' ? Number(g) : Number(g.toString());
-                  break;
-                }
-              } catch {}
-            }
-          }
-        } catch {}
+        // Step 3: Lock the gift pack (once, after all assets are added)
+        const lockTx = await escrow.lockGiftPack(codeHash);
+        tx = await lockTx.wait();
+        console.log('[GiftEscrow] Gift pack locked:', tx.hash);
 
-        if (giftIdOnChain != null) {
-          giftIds.push(giftIdOnChain);
-        }
-        txHashes.push(tx.hash);
-      }
-
-      // Persist multi-onchain info
-      if (giftIds.length > 1) {
-        // Use a raw SQL update here to avoid relying on a regenerated Prisma client
-        // that may not yet include the `giftIdsOnChain` field during incremental
-        // rollouts (this is a safe, parameterized query).
-        const giftIdsJson = JSON.stringify(giftIds);
-        await this.prisma.$executeRaw`
-          UPDATE "GiftPack"
-          SET "status" = 'LOCKED',
-              "giftIdOnChain" = ${giftIds[0]},
-              "giftIdsOnChain" = ${giftIdsJson},
-              "giftCode" = ${giftCode}
-          WHERE "id" = ${pack.id}
-        `;
-      } else if (giftIds.length === 1) {
-        await this.prisma.giftPack.update({
-          where: { id: pack.id },
-          data: {
-            status: 'LOCKED',
-            giftIdOnChain: giftIds[0],
-            giftCode: giftCode,
-          },
+      } catch (lockError: any) {
+        console.error('Gift pack lock failed:', lockError);
+        throw new BadRequestException({
+          error: 'LOCK_FAILED',
+          message: `Failed to lock gift pack: ${lockError?.reason || lockError?.message || 'Unknown error'}`,
         });
-      } else {
-        throw new BadRequestException({ error: 'NO_GIFTS_LOCKED', message: 'No on-chain gifts were successfully locked' });
       }
+
+      const receipt = tx;
+      let giftPackLocked = false;
+      try {
+        const iface = (this.escrowContract as any)?.interface;
+        if (iface && receipt?.logs?.length) {
+          for (const log of receipt.logs) {
+            try {
+              const parsed = iface.parseLog(log);
+              if (parsed && parsed.name === 'GiftPackLocked') {
+                giftPackLocked = true;
+                break;
+              }
+            } catch {}
+          }
+        }
+      } catch {}
+
+      if (!giftPackLocked) {
+        throw new BadRequestException({
+          error: 'GIFT_PACK_NOT_LOCKED',
+          message: 'Gift pack lock was not confirmed in transaction receipt',
+        });
+      }
+
+      // Update database with locked status
+      await this.prisma.giftPack.update({
+        where: { id: pack.id },
+        data: {
+          status: 'LOCKED',
+          giftIdOnChain: 1, // Placeholder - using codeHash in contract
+          giftCode: giftCode,
+        },
+      });
 
       return {
         success: true,
-        giftIds,
-        transactionHashes: txHashes,
+        message: 'Gift pack locked successfully',
         giftCode,
+        transactionHash: tx.hash,
       };
     } catch (error: any) {
       if (error?.code) {

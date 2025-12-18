@@ -3,8 +3,11 @@ pragma solidity ^0.8.0;
 import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
 import '@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol';
 import '@openzeppelin/contracts/token/ERC721/IERC721.sol';
+
 // Lightweight Reentrancy protection (avoid external dependency mismatch)
 contract GiftEscrow {
+    using SafeERC20 for IERC20;
+
     // Reentrancy guard status
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
@@ -20,17 +23,47 @@ contract GiftEscrow {
         _;
         _status = _NOT_ENTERED;
     }
+
+    enum AssetType { ERC20, ERC721, ETH }
+
+    struct Asset {
+        AssetType assetType;
+        address tokenAddress;
+        uint256 tokenId;
+        uint256 amount;
+    }
+
+    struct GiftPack {
+        address sender;
+        uint256 expiryTimestamp;
+        bool claimed;
+        string message;
+        bytes32 codeHash;
+        Asset[] assets;
+    }
+
+    mapping(bytes32 => GiftPack) public giftPacks;
+    mapping(bytes32 => bool) public codeHashExists;
+    bytes32[] public allCodeHashes;
+
+    uint256 public nextGiftId;
+    mapping(uint256 => bytes32) public giftIdToCodeHash;
+
+    event GiftPackLocked(
+        bytes32 indexed codeHash,
+        address indexed sender,
+        uint256 assetCount,
+        uint256 expiryTimestamp
+    );
+    event GiftPackClaimed(bytes32 indexed codeHash, address indexed claimer);
+    event GiftPackExpired(bytes32 indexed codeHash);
+    event AssetAddedToGiftPack(bytes32 indexed codeHash, uint256 assetIndex, uint8 assetType);
+
     /**
-     * @dev Validates parameters for locking a gift. Returns true if valid, false otherwise, with a reason string.
-     * This is a view function for off-chain validation before calling lockGift/lockGiftV2.
+     * @dev Validates parameters for locking a gift pack. Returns true if valid, false otherwise.
      */
-    function validateGiftForLocking(
-        uint8 assetType,
-        address tokenAddress,
-        uint256 tokenId,
-        uint256 amount,
+    function validateGiftPackForLocking(
         uint256 expiryTimestamp,
-        string calldata message,
         bytes32 codeHash
     ) external view returns (bool valid, string memory reason) {
         if (codeHash == bytes32(0)) {
@@ -39,302 +72,241 @@ contract GiftEscrow {
         if (expiryTimestamp <= block.timestamp) {
             return (false, "Expiry in past");
         }
-        if (assetType > uint8(AssetType.ETH)) {
-            return (false, "Bad assetType");
-        }
-        
-        AssetType at = AssetType(assetType);
-        
-        // ETH type: no token address needed
-        if (at == AssetType.ETH) {
-            if (amount == 0) {
-                return (false, "Amount>0");
-            }
-            return (true, "");
-        }
-        
-        // ERC20/ERC721 types: token address required
-        if (tokenAddress == address(0)) {
-            return (false, "Token required");
-        }
-        
-        if (at == AssetType.ERC20) {
-            if (amount == 0) {
-                return (false, "Amount>0");
-            }
-        } else {
-            if (tokenId == 0) {
-                return (false, "tokenId>0");
-            }
+        if (codeHashExists[codeHash]) {
+            return (false, "Code already used");
         }
         return (true, "");
     }
-    using SafeERC20 for IERC20;
 
-    enum AssetType { ERC20, ERC721, ETH }
-
-    struct Gift {
-        AssetType assetType;
-        address tokenAddress;
-        uint256 tokenId;
-        uint256 amount;
-        address sender;
-        uint256 expiryTimestamp;
-        bool claimed;
-        string message;
-        bytes32 codeHash;
-    }
-
-    mapping(uint256 => Gift) public gifts;
-    uint256 public nextGiftId;
-
-    event GiftLocked(
-        uint256 indexed giftId,
-        address indexed sender,
-        AssetType assetType,
-        address tokenAddress,
-        uint256 tokenId,
-        uint256 amount,
-        uint256 expiryTimestamp
-    );
-    event GiftClaimed(uint256 indexed giftId, address indexed claimer);
-    event GiftExpired(uint256 indexed giftId);
-
-    event GiftMetaSet(uint256 indexed giftId, string message, bool hasCode);
-    event GiftClaimedWithCode(uint256 indexed giftId, address indexed claimer);
-    event GiftBatchClaimed(uint256[] giftIds, address indexed claimer);
-
-
-    event GiftSent(
-        uint256 indexed giftId,
-        address indexed sender
-    );
-
-
-    function _lockGift(
-        uint8 assetType,
-        address tokenAddress,
-        uint256 tokenId,
-        uint256 amount,
+    /**
+     * @notice Create a new gift pack with a code and optional message.
+     * @param expiryTimestamp When the gift pack expires
+     * @param message Optional message for the gift
+     * @param codeHash The keccak256 hash of the secret code
+     * @return codeHash The code hash that identifies this gift pack
+     */
+    function createGiftPack(
         uint256 expiryTimestamp,
-        string memory message,
+        string calldata message,
         bytes32 codeHash
-    ) private returns (uint256 giftId) {
-        require(codeHash != bytes32(0), 'Code required');
-        require(expiryTimestamp > block.timestamp, 'Expiry in past');
-        require(assetType <= uint8(AssetType.ETH), 'Bad assetType');
+    ) external returns (bytes32) {
+        require(codeHash != bytes32(0), "Code required");
+        require(expiryTimestamp > block.timestamp, "Expiry in past");
+        require(!codeHashExists[codeHash], "Code already used");
 
-        AssetType at = AssetType(assetType);
-        
-        if (at == AssetType.ETH) {
-            // For ETH gifts, msg.value must match amount and no token address needed
-            require(amount > 0, 'Amount>0');
-            require(msg.value == amount, 'Incorrect ETH amount');
-        } else {
-            // For token gifts, token address is required
-            require(tokenAddress != address(0), 'Token required');
-            
-            if (at == AssetType.ERC20) {
-                require(amount > 0, 'Amount>0');
-                IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), amount);
-            } else {
-                require(tokenId != 0, 'tokenId>0');
-                IERC721(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenId);
-            }
-        }
-
-        giftId = nextGiftId++;
-        gifts[giftId] = Gift({
-            assetType: at,
-            tokenAddress: tokenAddress,
-            tokenId: tokenId,
-            amount: amount,
+        giftPacks[codeHash] = GiftPack({
             sender: msg.sender,
             expiryTimestamp: expiryTimestamp,
             claimed: false,
             message: message,
-            codeHash: codeHash
+            codeHash: codeHash,
+            assets: new Asset[](0)
         });
 
-        emit GiftLocked(giftId, msg.sender, at, tokenAddress, tokenId, amount, expiryTimestamp);
-        emit GiftSent(giftId, msg.sender);
-        if (bytes(message).length > 0 || codeHash != bytes32(0)) {
-            emit GiftMetaSet(giftId, message, codeHash != bytes32(0));
-        }
+        codeHashExists[codeHash] = true;
+        allCodeHashes.push(codeHash);
+
+        return codeHash;
     }
 
-
-
-    function lockGift(
+    /**
+     * @notice Add an asset (ERC20, ERC721, or ETH) to an existing gift pack.
+     * @param codeHash The code hash identifying the gift pack
+     * @param assetType Type of asset (0=ERC20, 1=ERC721, 2=ETH)
+     * @param tokenAddress Address of the token (ignored for ETH)
+     * @param tokenId Token ID for ERC721 (0 for others)
+     * @param amount Amount for ERC20 or ETH (0 for ERC721)
+     */
+    function addAssetToGiftPack(
+        bytes32 codeHash,
         uint8 assetType,
         address tokenAddress,
         uint256 tokenId,
-        uint256 amount,
-        uint256 expiryTimestamp
-    ) public returns (uint256 giftId) {
-        return _lockGift(assetType, tokenAddress, tokenId, amount, expiryTimestamp, '', bytes32(0));
-    }
+        uint256 amount
+    ) external payable nonReentrant {
+        require(codeHashExists[codeHash], "Gift pack not found");
+        GiftPack storage pack = giftPacks[codeHash];
+        require(!pack.claimed, "Already claimed");
+        require(block.timestamp < pack.expiryTimestamp, "Expired");
+        require(pack.sender == msg.sender, "Not owner");
+        require(assetType <= uint8(AssetType.ETH), "Bad assetType");
 
+        AssetType at = AssetType(assetType);
 
-    function lockGiftV2(
-        uint8 assetType,
-        address tokenAddress,
-        uint256 tokenId,
-        uint256 amount,
-        uint256 expiryTimestamp,
-        string calldata message,
-        bytes32 codeHash
-    ) external returns (uint256 giftId) {
-        return _lockGift(assetType, tokenAddress, tokenId, amount, expiryTimestamp, message, codeHash);
-    }
-
-
-    function lock(
-        address tokenAddress,
-        uint8 assetType,
-        uint256 tokenId,
-        uint256 amount,
-        uint256 expiryTimestamp
-    ) external returns (uint256 giftId) {
-        return lockGift(assetType, tokenAddress, tokenId, amount, expiryTimestamp);
-    }
-
-
-    function sendGift(
-        address tokenAddress,
-        uint256 tokenId,
-        uint256 amount,
-        uint256 expiryDays,
-        bytes32 codeHash
-    ) external returns (uint256 giftId) {
-        require(expiryDays > 0, 'ExpiryDays>0');
-        require(codeHash != bytes32(0), 'Code required');
-        uint256 expiryTimestamp = block.timestamp + expiryDays * 1 days;
-        uint8 assetType = tokenId > 0 ? uint8(AssetType.ERC721) : uint8(AssetType.ERC20);
-    giftId = this.lockGiftV2(assetType, tokenAddress, tokenId, amount, expiryTimestamp, '', codeHash);
-    }
-
-    function _payout(Gift storage g, address to) private {
-        if (g.assetType == AssetType.ERC721) {
-            IERC721(g.tokenAddress).safeTransferFrom(address(this), to, g.tokenId);
-        } else if (g.assetType == AssetType.ERC20) {
-            IERC20(g.tokenAddress).safeTransfer(to, g.amount);
+        if (at == AssetType.ETH) {
+            require(amount > 0, "Amount > 0");
+            require(msg.value == amount, "Incorrect ETH amount");
+        } else if (at == AssetType.ERC20) {
+            require(tokenAddress != address(0), "Token address required");
+            require(amount > 0, "Amount > 0");
+            IERC20(tokenAddress).safeTransferFrom(msg.sender, address(this), amount);
         } else {
-            // ETH type
-            (bool success, ) = payable(to).call{value: g.amount}("");
-            require(success, "ETH transfer failed");
+            require(tokenAddress != address(0), "Token address required");
+            require(tokenId > 0, "tokenId > 0");
+            IERC721(tokenAddress).safeTransferFrom(msg.sender, address(this), tokenId);
         }
-    }
 
+        pack.assets.push(Asset({
+            assetType: at,
+            tokenAddress: tokenAddress,
+            tokenId: tokenId,
+            amount: amount
+        }));
 
-
-    function claimGiftWithCode(uint256 giftId, string calldata code) external {
-        Gift storage g = gifts[giftId];
-        require(!g.claimed, 'Already claimed');
-        require(block.timestamp <= g.expiryTimestamp, 'Expired');
-        require(g.codeHash != bytes32(0), 'No code set');
-        require(keccak256(abi.encodePacked(code)) == g.codeHash, 'Invalid code');
-
-        g.claimed = true;
-        _payout(g, msg.sender);
-
-        emit GiftClaimedWithCode(giftId, msg.sender);
+        emit AssetAddedToGiftPack(codeHash, pack.assets.length - 1, assetType);
     }
 
     /**
-     * @notice Claim multiple gifts (that share the same secret code) in a single transaction.
-     * @dev This will mark each gift as claimed and payout each asset to the caller.
-     * Uses ReentrancyGuard and follows checks-effects-interactions pattern.
+     * @notice Finalize and lock a gift pack. Can only be called after all assets are added.
+     * @param codeHash The code hash identifying the gift pack
      */
-    function claimMultipleWithCode(uint256[] calldata giftIds, string calldata code) external nonReentrant {
-        bytes32 expected = keccak256(abi.encodePacked(code));
-        for (uint256 i = 0; i < giftIds.length; i++) {
-            uint256 id = giftIds[i];
-            Gift storage g = gifts[id];
-            require(!g.claimed, 'Already claimed');
-            require(block.timestamp <= g.expiryTimestamp, 'Expired');
-            require(g.codeHash != bytes32(0), 'No code set');
-            require(g.codeHash == expected, 'Invalid code');
+    function lockGiftPack(bytes32 codeHash) external {
+        require(codeHashExists[codeHash], "Gift pack not found");
+        GiftPack storage pack = giftPacks[codeHash];
+        require(!pack.claimed, "Already claimed");
+        require(pack.sender == msg.sender, "Not owner");
+        require(pack.assets.length > 0, "No assets in pack");
 
-            g.claimed = true;
-            _payout(g, msg.sender);
-            emit GiftClaimedWithCode(id, msg.sender);
-        }
-        emit GiftBatchClaimed(giftIds, msg.sender);
+        emit GiftPackLocked(codeHash, msg.sender, pack.assets.length, pack.expiryTimestamp);
     }
 
     /**
-     * @notice Claim multiple gifts which do not require a code (e.g., public gifts), in a single transaction.
+     * @notice Claim a gift pack by providing the secret code.
+     * Transfers all assets in the pack to the caller.
+     * @param codeHash The code hash identifying the gift pack
+     * @param code The plaintext code
      */
-    function claimMultiple(uint256[] calldata giftIds) external nonReentrant {
-        for (uint256 i = 0; i < giftIds.length; i++) {
-            uint256 id = giftIds[i];
-            Gift storage g = gifts[id];
-            require(!g.claimed, 'Already claimed');
-            require(block.timestamp <= g.expiryTimestamp, 'Expired');
+    function claimGiftPackWithCode(bytes32 codeHash, string calldata code) external nonReentrant {
+        require(codeHashExists[codeHash], "Gift pack not found");
+        require(keccak256(abi.encodePacked(code)) == codeHash, "Invalid code");
 
-            g.claimed = true;
-            _payout(g, msg.sender);
-            emit GiftClaimed(id, msg.sender);
-        }
-        emit GiftBatchClaimed(giftIds, msg.sender);
-    }
+        GiftPack storage pack = giftPacks[codeHash];
+        require(!pack.claimed, "Already claimed");
+        require(block.timestamp <= pack.expiryTimestamp, "Expired");
+        require(pack.assets.length > 0, "No assets in pack");
 
-    function refundExpired(uint256[] calldata ids) external {
-        for (uint256 i = 0; i < ids.length; i++) {
-            uint256 id = ids[i];
-            Gift storage g = gifts[id];
-            if (!g.claimed && block.timestamp > g.expiryTimestamp) {
-                g.claimed = true; 
-                if (g.assetType == AssetType.ERC721) {
-                    IERC721(g.tokenAddress).safeTransferFrom(address(this), g.sender, g.tokenId);
-                } else {
-                    IERC20(g.tokenAddress).safeTransfer(g.sender, g.amount);
-                }
-                emit GiftExpired(id);
+        pack.claimed = true;
+
+        // Transfer all assets to the claimer
+        for (uint256 i = 0; i < pack.assets.length; i++) {
+            Asset storage asset = pack.assets[i];
+            
+            if (asset.assetType == AssetType.ERC721) {
+                IERC721(asset.tokenAddress).safeTransferFrom(address(this), msg.sender, asset.tokenId);
+            } else if (asset.assetType == AssetType.ERC20) {
+                IERC20(asset.tokenAddress).safeTransfer(msg.sender, asset.amount);
+            } else {
+                // ETH - send directly without wrapping
+                (bool success, ) = payable(msg.sender).call{value: asset.amount}("");
+                require(success, "ETH transfer failed");
             }
         }
+
+        emit GiftPackClaimed(codeHash, msg.sender);
     }
 
+    /**
+     * @notice Refund an expired gift pack to the original sender.
+     * @param codeHash The code hash identifying the gift pack
+     */
+    function refundExpiredGiftPack(bytes32 codeHash) external nonReentrant {
+        require(codeHashExists[codeHash], "Gift pack not found");
+        GiftPack storage pack = giftPacks[codeHash];
+        require(!pack.claimed, "Already claimed");
+        require(block.timestamp > pack.expiryTimestamp, "Not expired");
+        require(pack.sender == msg.sender, "Not owner");
 
-    function getGiftStatus(uint256 giftId) external view returns (
-        bool exists,
-        bool claimed,
-        address sender,
-        uint256 expiryTimestamp
-    ) {
-        if (giftId >= nextGiftId) return (false, false, address(0), 0);
-        Gift storage g = gifts[giftId];
-        return (true, g.claimed, g.sender, g.expiryTimestamp);
+        pack.claimed = true;
+
+        // Refund all assets to the sender
+        for (uint256 i = 0; i < pack.assets.length; i++) {
+            Asset storage asset = pack.assets[i];
+            
+            if (asset.assetType == AssetType.ERC721) {
+                IERC721(asset.tokenAddress).safeTransferFrom(address(this), pack.sender, asset.tokenId);
+            } else if (asset.assetType == AssetType.ERC20) {
+                IERC20(asset.tokenAddress).safeTransfer(pack.sender, asset.amount);
+            } else {
+                // ETH - send directly
+                (bool success, ) = payable(pack.sender).call{value: asset.amount}("");
+                require(success, "ETH refund failed");
+            }
+        }
+
+        emit GiftPackExpired(codeHash);
     }
 
+    /**
+     * @notice Get all assets in a gift pack
+     * @param codeHash The code hash identifying the gift pack
+     * @return assets Array of assets in the pack
+     */
+    function getGiftPackAssets(bytes32 codeHash) external view returns (Asset[] memory assets) {
+        require(codeHashExists[codeHash], "Gift pack not found");
+        return giftPacks[codeHash].assets;
+    }
 
-    function getGift(uint256 giftId) external view returns (
-        AssetType assetType,
-        address tokenAddress,
-        uint256 tokenId,
-        uint256 amount,
+    /**
+     * @notice Get gift pack details
+     * @param codeHash The code hash identifying the gift pack
+     * @return sender The address that created the gift pack
+     * @return expiryTimestamp When the gift pack expires
+     * @return claimed Whether the gift pack has been claimed
+     * @return message The optional message
+     * @return assetCount Number of assets in the pack
+     */
+    function getGiftPackDetails(bytes32 codeHash) external view returns (
         address sender,
         uint256 expiryTimestamp,
-        bool claimed
+        bool claimed,
+        string memory message,
+        uint256 assetCount
     ) {
-        require(giftId < nextGiftId, 'No gift');
-        Gift storage g = gifts[giftId];
-        return (g.assetType, g.tokenAddress, g.tokenId, g.amount, g.sender, g.expiryTimestamp, g.claimed);
+        require(codeHashExists[codeHash], "Gift pack not found");
+        GiftPack storage pack = giftPacks[codeHash];
+        return (pack.sender, pack.expiryTimestamp, pack.claimed, pack.message, pack.assets.length);
+    }
+
+    /**
+     * @notice Get a specific asset from a gift pack
+     * @param codeHash The code hash identifying the gift pack
+     * @param index The index of the asset
+     * @return asset The asset details
+     */
+    function getAssetByIndex(bytes32 codeHash, uint256 index) external view returns (Asset memory asset) {
+        require(codeHashExists[codeHash], "Gift pack not found");
+        GiftPack storage pack = giftPacks[codeHash];
+        require(index < pack.assets.length, "Asset index out of bounds");
+        return pack.assets[index];
+    }
+
+    /**
+     * @notice Get all code hashes (pagination support)
+     * @return codeHashes Array of all code hashes
+     */
+    function getAllCodeHashes() external view returns (bytes32[] memory codeHashes) {
+        return allCodeHashes;
+    }
+
+    /**
+     * @notice Check if a code hash exists
+     * @param codeHash The code hash to check
+     * @return exists Whether the code hash exists
+     */
+    function codeHashExistsCheck(bytes32 codeHash) external view returns (bool exists) {
+        return codeHashExists[codeHash];
     }
 
 
-    function getGiftMeta(uint256 giftId) external view returns (string memory message, bool hasCode) {
-        require(giftId < nextGiftId, 'No gift');
-        Gift storage g = gifts[giftId];
-        return (g.message, g.codeHash != bytes32(0));
-    }
-
-
+    /**
+     * @notice ERC721 token receiver callback
+     */
     function onERC721Received(address, address, uint256, bytes calldata) external pure returns (bytes4) {
         return this.onERC721Received.selector;
     }
 
-    // Allow contract to receive ETH
+    /**
+     * @notice Allow contract to receive ETH directly
+     */
     receive() external payable {}
 }

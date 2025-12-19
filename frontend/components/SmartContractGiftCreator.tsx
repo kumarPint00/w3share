@@ -112,6 +112,12 @@ export default function SmartContractGiftCreator({ walletAddress }: SmartContrac
       for (let i = 0; i < result.transactions.length; i++) {
         const tx = result.transactions[i];
         console.log(`[Lock] Executing transaction ${i + 1}/${result.transactions.length}: ${tx.description}`);
+        console.log(`[Lock] Transaction data:`, {
+          selector: tx.data.slice(0, 10),
+          dataLength: tx.data.length,
+          to: tx.to,
+          value: tx.value,
+        });
 
         const txData = {
           to: tx.to,

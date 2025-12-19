@@ -39,7 +39,7 @@ export class GiftpacksService {
         this.config.get<string>('CLAIM_MOCK') === '1';
 
       if (this.mockMode) {
-        console.log('GiftPacks service initialized in MOCK MODE');
+        console.log('[GiftPacks] Initialized in MOCK MODE');
         this.isSmartContractEnabled = true;
         return;
       }
@@ -47,8 +47,14 @@ export class GiftpacksService {
       const privateKey = this.config.get<string>('DEPLOYER_PRIVATE_KEY');
       const escrowAddress = this.config.get<string>('GIFT_ESCROW_ADDRESS');
 
+      console.log('[GiftPacks] Initializing with config:', {
+        rpcUrl: rpcUrl ? '✓' : '✗ MISSING',
+        privateKey: privateKey ? '✓' : '✗ MISSING',
+        escrowAddress: escrowAddress || '✗ MISSING',
+      });
+
       if (!this.isValidConfig(rpcUrl, privateKey, escrowAddress)) {
-        console.warn('Smart contract configuration incomplete. Smart contract features will be disabled.');
+        console.warn('[GiftPacks] Smart contract configuration incomplete. Smart contract features will be disabled.');
         return;
       }
 
@@ -57,9 +63,16 @@ export class GiftpacksService {
       this.escrowContract = new Contract(escrowAddress!, (GiftEscrowArtifact as any).abi, this.signer);
       this.isSmartContractEnabled = true;
 
-      console.log('Smart contract integration initialized successfully');
+      console.log('[GiftPacks] Smart contract initialized successfully:', {
+        escrowAddress,
+        signerAddress: this.signer.address,
+      });
     } catch (error: any) {
-      console.error('Failed to initialize smart contract connection:', error?.message || error);
+      console.error('[GiftPacks] Failed to initialize smart contract connection:', {
+        message: error?.message || error,
+        code: error?.code,
+        details: error?.toString(),
+      });
       this.isSmartContractEnabled = false;
     }
   }
@@ -361,12 +374,22 @@ export class GiftpacksService {
         expiryTs,
         message,
         codeHash,
+        escrowAddress: this.getEscrowAddress(),
+        signerAddress: this.signer?.address,
       });
 
       // Generate transaction data without executing
       // Step 1: Create the gift pack
       const iface = (this.escrowContract as any).interface;
+      console.log('[GiftEscrow] Creating encoded function data for createGiftPack');
       const createData = iface.encodeFunctionData('createGiftPack', [expiryTs, message, codeHash]);
+      console.log('[GiftEscrow] createGiftPack encoded successfully:', { dataLength: createData.length });
+      
+      console.log('[GiftEscrow] Generated createGiftPack transaction:', {
+        selector: createData.slice(0, 10),
+        dataLength: createData.length,
+        codeHashHex: codeHash,
+      });
 
       // Step 2: Add all assets to the gift pack (collect all in a list)
       const addAssetCalls: Array<{ data: string; value: string }> = [];

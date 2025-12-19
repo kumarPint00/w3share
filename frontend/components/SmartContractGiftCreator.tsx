@@ -6,6 +6,7 @@
  */
 
 import React, { useState } from 'react';
+import { ethers } from 'ethers';
 import {
   useCreateGiftPack,
   useAddItemToGiftPack,
@@ -87,8 +88,50 @@ export default function SmartContractGiftCreator({ walletAddress }: SmartContrac
 
     try {
       const result = await lockGiftPack.mutateAsync({ id: giftPackId });
-      setOnChainGiftId(result.giftId);
-      alert(`Gift locked on blockchain! Gift ID: ${result.giftId}, TX: ${result.transactionHash}`);
+      
+      // Get user's wallet
+      if (!window.ethereum) {
+        throw new Error('MetaMask not installed');
+      }
+
+      const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+      if (!accounts || accounts.length === 0) {
+        throw new Error('No wallet connected');
+      }
+
+      const userAddress = accounts[0];
+      const web3Provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await web3Provider.getSigner();
+
+      console.log('[Lock] Executing transactions for gift pack:', result.giftCode);
+      console.log('[Lock] Number of transactions:', result.transactions.length);
+
+      const transactionHashes: string[] = [];
+
+      // Execute each transaction
+      for (let i = 0; i < result.transactions.length; i++) {
+        const tx = result.transactions[i];
+        console.log(`[Lock] Executing transaction ${i + 1}/${result.transactions.length}: ${tx.description}`);
+
+        const txData = {
+          to: tx.to,
+          data: tx.data,
+          value: tx.value === '0' ? '0' : BigInt(tx.value),
+        };
+
+        const txResponse = await signer.sendTransaction(txData);
+        console.log(`[Lock] Transaction ${i + 1} sent:`, txResponse.hash);
+        transactionHashes.push(txResponse.hash);
+
+        // Wait for transaction to be mined
+        const receipt = await txResponse.wait();
+        if (!receipt) {
+          throw new Error(`Transaction ${i + 1} failed to be mined`);
+        }
+        console.log(`[Lock] Transaction ${i + 1} mined:`, receipt.hash);
+      }
+
+      alert(`Gift pack locked successfully! Transaction hashes:\n${transactionHashes.join('\n')}`);
     } catch (error) {
       console.error('Failed to lock gift pack on blockchain:', error);
       alert(`Error: ${error instanceof Error ? error.message : 'Unknown error occurred'}`);

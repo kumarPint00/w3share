@@ -357,96 +357,55 @@ export class GiftpacksService {
         }
       }
 
-      console.log('[GiftEscrow] Creating Gift Pack with params:', {
+      console.log('[GiftEscrow] Generating transaction data for Gift Pack with params:', {
         expiryTs,
         message,
         codeHash,
       });
 
-      let tx;
-      
-      // NEW FLOW: Create gift pack once, add all assets, then lock
-      try {
-        // Step 1: Create the gift pack
-        const createTx = await escrow.createGiftPack(expiryTs, message, codeHash);
-        const createReceipt = await createTx.wait();
-        console.log('[GiftEscrow] Gift pack created:', createReceipt.hash);
+      // Generate transaction data without executing
+      // Step 1: Create the gift pack
+      const iface = (this.escrowContract as any).interface;
+      const createData = iface.encodeFunctionData('createGiftPack', [expiryTs, message, codeHash]);
 
-        // Step 2: Add all assets to the gift pack
-        for (const it of pack.items) {
-          const raw = String(it.contract || '');
-          const isNative = raw.toLowerCase() === 'native';
-          let tokenAddress = raw;
-          let assetTypeNum: number;
+      // Step 2: Add all assets to the gift pack (collect all in a list)
+      const addAssetCalls: Array<{ data: string; value: string }> = [];
+      for (const it of pack.items) {
+        const raw = String(it.contract || '');
+        const isNative = raw.toLowerCase() === 'native';
+        let tokenAddress = raw;
+        let assetTypeNum: number;
 
-          if (isNative) {
-            // For native ETH, use type 2 and ZeroAddress for tokenAddress
-            tokenAddress = ethers.ZeroAddress;
-            assetTypeNum = 2; // ETH type
-          } else {
-            // For ERC20/ERC721, use the contract type
-            assetTypeNum = this.assetTypeToNumber(it.type as AssetType);
-          }
-
-          const amount = BigInt(it.amount ?? 0);
-          const tokenId = BigInt(it.tokenId ?? 0);
-
-          let txOptions: any = {};
-          if (isNative) {
-            // For ETH, pass value as tx option
-            txOptions.value = amount;
-          }
-
-          const addAssetTx = await escrow.addAssetToGiftPack(
-            codeHash,
-            assetTypeNum,
-            tokenAddress,
-            tokenId,
-            amount,
-            txOptions
-          );
-          const addAssetReceipt = await addAssetTx.wait();
-          console.log('[GiftEscrow] Asset added to gift pack:', addAssetReceipt.hash);
+        if (isNative) {
+          // For native ETH, use type 2 and ZeroAddress for tokenAddress
+          tokenAddress = ethers.ZeroAddress;
+          assetTypeNum = 2; // ETH type
+        } else {
+          // For ERC20/ERC721, use the contract type
+          assetTypeNum = this.assetTypeToNumber(it.type as AssetType);
         }
 
-        // Step 3: Lock the gift pack (once, after all assets are added)
-        const lockTx = await escrow.lockGiftPack(codeHash);
-        tx = await lockTx.wait();
-        console.log('[GiftEscrow] Gift pack locked:', tx.hash);
+        const amount = BigInt(it.amount ?? 0);
+        const tokenId = BigInt(it.tokenId ?? 0);
 
-      } catch (lockError: any) {
-        console.error('Gift pack lock failed:', lockError);
-        throw new BadRequestException({
-          error: 'LOCK_FAILED',
-          message: `Failed to lock gift pack: ${lockError?.reason || lockError?.message || 'Unknown error'}`,
+        const addAssetData = iface.encodeFunctionData('addAssetToGiftPack', [
+          codeHash,
+          assetTypeNum,
+          tokenAddress,
+          tokenId,
+          amount,
+        ]);
+
+        addAssetCalls.push({
+          data: addAssetData,
+          value: isNative ? amount.toString() : '0',
         });
       }
 
-      const receipt = tx;
-      let giftPackLocked = false;
-      try {
-        const iface = (this.escrowContract as any)?.interface;
-        if (iface && receipt?.logs?.length) {
-          for (const log of receipt.logs) {
-            try {
-              const parsed = iface.parseLog(log);
-              if (parsed && parsed.name === 'GiftPackLocked') {
-                giftPackLocked = true;
-                break;
-              }
-            } catch {}
-          }
-        }
-      } catch {}
+      // Step 3: Lock the gift pack
+      const lockData = iface.encodeFunctionData('lockGiftPack', [codeHash]);
 
-      if (!giftPackLocked) {
-        throw new BadRequestException({
-          error: 'GIFT_PACK_NOT_LOCKED',
-          message: 'Gift pack lock was not confirmed in transaction receipt',
-        });
-      }
-
-      // Update database with locked status
+      // Update database with locked status (will be marked truly locked after user executes)
       await this.prisma.giftPack.update({
         where: { id: pack.id },
         data: {
@@ -457,9 +416,28 @@ export class GiftpacksService {
 
       return {
         success: true,
-        message: 'Gift pack locked successfully',
+        message: 'Gift pack transactions prepared - sign and execute from your wallet',
         giftCode,
-        transactionHash: tx.hash,
+        transactions: [
+          {
+            to: escrowAddress,
+            data: createData,
+            value: '0',
+            description: 'Create gift pack',
+          },
+          ...addAssetCalls.map((call, idx) => ({
+            to: escrowAddress,
+            data: call.data,
+            value: call.value,
+            description: `Add asset ${idx + 1}`,
+          })),
+          {
+            to: escrowAddress,
+            data: lockData,
+            value: '0',
+            description: 'Lock gift pack',
+          },
+        ],
       };
     } catch (error: any) {
       if (error?.code) {

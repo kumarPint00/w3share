@@ -25,6 +25,53 @@ import { ethers } from 'ethers';
 import { useDirectContractInteraction } from '@/lib/hooks/useDirectContractInteraction';
 import Image from 'next/image';
 
+// Helper function to execute backend-generated transactions with user's wallet
+async function executeBackendTransactions(
+  transactions: Array<{ to: string; data: string; value: string; description: string }>,
+  giftCode: string
+) {
+  if (!window.ethereum) {
+    throw new Error('MetaMask not installed');
+  }
+
+  const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+  if (!accounts || accounts.length === 0) {
+    throw new Error('No wallet connected');
+  }
+
+  const web3Provider = new ethers.BrowserProvider(window.ethereum);
+  const signer = await web3Provider.getSigner();
+
+  console.log('[ExecuteTx] Executing transactions for gift pack:', giftCode);
+  console.log('[ExecuteTx] Number of transactions:', transactions.length);
+
+  const transactionHashes: string[] = [];
+
+  for (let i = 0; i < transactions.length; i++) {
+    const tx = transactions[i];
+    console.log(`[ExecuteTx] Executing transaction ${i + 1}/${transactions.length}: ${tx.description}`);
+
+    const txData = {
+      to: tx.to,
+      data: tx.data,
+      value: tx.value === '0' ? '0' : BigInt(tx.value),
+    };
+
+    const txResponse = await signer.sendTransaction(txData);
+    console.log(`[ExecuteTx] Transaction ${i + 1} sent:`, txResponse.hash);
+    transactionHashes.push(txResponse.hash);
+
+    // Wait for transaction to be mined
+    const receipt = await txResponse.wait();
+    if (!receipt) {
+      throw new Error(`Transaction ${i + 1} (${tx.description}) failed to be mined`);
+    }
+    console.log(`[ExecuteTx] Transaction ${i + 1} mined:`, receipt.hash);
+  }
+
+  return transactionHashes;
+}
+
 const CreatePack: React.FC = () => {
   const router = useRouter();
   const [state, dispatch] = useContext(EscrowContext)!;
@@ -366,18 +413,16 @@ const CreatePack: React.FC = () => {
               directError.message.includes('Token contract error')) {
             console.log('Using backend fallback for problematic tokens');
             const lockRes = await apiService.lockGiftPack(packId);
+            
+            // Execute the transactions from user's wallet
+            await executeBackendTransactions(lockRes.transactions, lockRes.giftCode);
+            
             setToast({ open: true, msg: 'Gift locked successfully via backend!', severity: 'success' });
             
-            // Build success URL with transaction hash from fallback
+            // Redirect to success page
             const params = new URLSearchParams({
               giftCode: lockRes.giftCode
             });
-            if (lockRes.transactionHash || lockRes.txHash) {
-              params.set('txHash', lockRes.transactionHash || lockRes.txHash);
-            }
-            if (lockRes.blockNumber) {
-              params.set('blockNumber', lockRes.blockNumber.toString());
-            }
             router.push(`/gift/create/success?${params.toString()}`);
             return; // Important: exit here to prevent double processing
           }
@@ -409,26 +454,17 @@ const CreatePack: React.FC = () => {
         
         try {
           const lockRes = await apiService.lockGiftPack(packId);
+          
+          // Execute the transactions from user's wallet
+          await executeBackendTransactions(lockRes.transactions, lockRes.giftCode);
+          
           const successMsg = hasNativeEth 
             ? 'ETH gift locked successfully!' 
             : 'Gift locked successfully via backend!';
           setToast({ open: true, msg: successMsg, severity: 'success' });
           
-          // Build success URL with transaction hash
-          // Handle multi-token response from backend
+          // Build success URL with gift code
           const params = new URLSearchParams({ giftCode: lockRes.giftCode });
-          if (Array.isArray(lockRes.giftIds) && lockRes.giftIds.length > 0) {
-            params.set('giftId', String(lockRes.giftIds[0]));
-            params.set('multi', String(lockRes.giftIds.length));
-          }
-          if (Array.isArray(lockRes.transactionHashes) && lockRes.transactionHashes.length > 0) {
-            params.set('txHashes', lockRes.transactionHashes.join(','));
-          } else if (lockRes.transactionHash || lockRes.txHash) {
-            params.set('txHash', lockRes.transactionHash || lockRes.txHash);
-          }
-          if (lockRes.blockNumber) {
-            params.set('blockNumber', lockRes.blockNumber.toString());
-          }
           router.push(`/gift/create/success?${params.toString()}`);
         } catch (backendError: any) {
           console.error('Backend gift creation failed:', backendError);

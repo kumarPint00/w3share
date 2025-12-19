@@ -208,9 +208,15 @@ export interface SmartContractGiftStatus {
 }
 
 export interface LockGiftResponse {
-  giftId: number;
-  transactionHash: string;
+  success: boolean;
+  message: string;
   giftCode: string;
+  transactions: Array<{
+    to: string;
+    data: string;
+    value: string;
+    description: string;
+  }>;
 }
 
 export interface GiftValidationResult {

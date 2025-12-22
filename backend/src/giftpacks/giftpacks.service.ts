@@ -320,7 +320,9 @@ export class GiftpacksService {
       const message = (pack as any).message || '';
       const escrowAddress = this.getEscrowAddress();
 
-      // Step 1: Validate all items and ensure approvals before locking
+      // Step 1: Validate all items (address validity, amount format)
+      // IMPORTANT: Do NOT execute approvals here. The user MUST approve tokens from their own wallet.
+      // The backend is only a transaction data generator, not the executor.
       for (const it of pack.items) {
         const raw = String(it.contract || '');
         const isNative = raw.toLowerCase() === 'native';
@@ -328,7 +330,7 @@ export class GiftpacksService {
         let assetTypeNum: number;
 
         if (isNative) {
-          // For native ETH, use type 2 and any address for tokenAddress (it will be ignored)
+          // For native ETH, use type 2 and ZeroAddress for tokenAddress
           tokenAddress = ethers.ZeroAddress;
           assetTypeNum = 2; // ETH type
         } else {
@@ -339,35 +341,36 @@ export class GiftpacksService {
         const amount = BigInt(it.amount ?? 0);
         const tokenId = BigInt(it.tokenId ?? 0);
 
-        // Only ensure approval for ERC20 and ERC721 (not native ETH)
-        if (!isNative && it.type === 'ERC20') {
-          await this.ensureApproval(it.type as AssetType, tokenAddress, escrowAddress, amount, tokenId);
+        // Validate contract address format
+        if (!isNative && !ethers.isAddress(raw)) {
+          throw new BadRequestException({
+            error: 'INVALID_ADDRESS',
+            message: `Invalid contract address: ${it.contract}`,
+          });
         }
 
-        // Debug: Check balance and approval for ERC20 items
-        if (it.type === 'ERC20' && !isNative) {
-          const erc20 = new Contract(
-            tokenAddress,
-            ['function balanceOf(address) view returns (uint256)', 'function allowance(address,address) view returns (uint256)'],
-            this.signer,
-          );
-          const balance = await erc20.balanceOf(this.signer!.address);
-          const allowance = await erc20.allowance(this.signer!.address, escrowAddress);
-          console.log('[DEBUG] ERC20 balance:', balance.toString(), 'Allowance:', allowance.toString(), 'Required:', amount.toString());
-          
-          if (balance < amount) {
-            throw new BadRequestException({
-              error: 'INSUFFICIENT_BALANCE',
-              message: `Insufficient token balance. Have: ${balance.toString()}, Need: ${amount.toString()}`,
-            });
-          }
-          if (allowance < amount) {
-            throw new BadRequestException({
-              error: 'INSUFFICIENT_ALLOWANCE',
-              message: `Insufficient token allowance. Have: ${allowance.toString()}, Need: ${amount.toString()}`,
-            });
-          }
+        // Validate amount for ERC20
+        if (it.type === 'ERC20' && amount <= 0n) {
+          throw new BadRequestException({
+            error: 'INVALID_AMOUNT',
+            message: 'ERC20 items must have a positive amount',
+          });
         }
+
+        // Validate tokenId for ERC721
+        if (it.type === 'ERC721' && tokenId === 0n) {
+          throw new BadRequestException({
+            error: 'INVALID_TOKEN_ID',
+            message: 'ERC721 items must have a valid token ID',
+          });
+        }
+
+        console.log('[GiftEscrow] Validated item:', {
+          type: it.type,
+          address: tokenAddress,
+          amount: amount.toString(),
+          tokenId: tokenId.toString(),
+        });
       }
 
       console.log('[GiftEscrow] Generating transaction data for Gift Pack with params:', {
@@ -501,74 +504,6 @@ export class GiftpacksService {
         return 1;
       default:
         return 0;
-    }
-  }
-
-  private async ensureApproval(
-    type: AssetType,
-    tokenAddress: string,
-    spender: string,
-    amount: bigint,
-    tokenId: bigint,
-  ) {
-    if (!this.signer) {
-      throw new ServiceUnavailableException({
-        error: 'SIGNER_MISSING',
-        message: 'Signer not initialized',
-      });
-    }
-
-    const tokenRaw = String(tokenAddress || '');
-
-    if (!ethers.isAddress(tokenRaw)) {
-      if (/^native$/i.test(tokenRaw)) return;
-      throw new BadRequestException({
-        error: 'INVALID_TOKEN_ADDRESS',
-        message: `Invalid token address for approval: ${tokenRaw}`,
-      });
-    }
-
-    const provider = this.signer.provider as JsonRpcProvider;
-    const code = await provider.getCode(tokenRaw);
-    if (!code || code === '0x') {
-      throw new BadRequestException({
-        error: 'NO_CONTRACT_CODE',
-        message: `No contract code at ${tokenRaw} on the connected network. Check chain and address.`,
-      });
-    }
-
-    if (type === 'ERC20') {
-      const erc20 = new Contract(
-        tokenRaw,
-        [
-          'function allowance(address owner, address spender) view returns (uint256)',
-          'function approve(address spender, uint256 amount) returns (bool)',
-        ],
-        this.signer,
-      );
-      const current: bigint = await erc20.allowance(this.signer.address, spender);
-      if (current < amount) {
-        const tx = await erc20.approve(spender, ethers.MaxUint256);
-        await tx.wait();
-      }
-      return;
-    }
-
-    if (type === 'ERC721') {
-      const erc721 = new Contract(
-        tokenRaw,
-        [
-          'function isApprovedForAll(address owner, address operator) view returns (bool)',
-          'function setApprovalForAll(address operator, bool approved)',
-        ],
-        this.signer,
-      );
-      const approvedForAll: boolean = await erc721.isApprovedForAll(this.signer.address, spender);
-      if (!approvedForAll) {
-        const tx = await erc721.setApprovalForAll(spender, true);
-        await tx.wait();
-      }
-      return;
     }
   }
 

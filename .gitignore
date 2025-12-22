@@ -1,0 +1,4 @@
+/node_modules
+/build
+
+backend/prisma/node_modules/

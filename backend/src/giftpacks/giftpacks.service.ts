@@ -394,7 +394,44 @@ export class GiftpacksService {
         codeHashHex: codeHash,
       });
 
-      // Step 2: Add all assets to the gift pack (collect all in a list)
+      // Step 2a: Generate approval transactions for ERC20 tokens
+      const approvalCalls: Array<{ data: string; value: string; description: string; tokenAddress: string }> = [];
+      for (const it of pack.items) {
+        const raw = String(it.contract || '');
+        const isNative = raw.toLowerCase() === 'native';
+        
+        // Only ERC20 tokens need approval
+        if (!isNative && it.type === 'ERC20') {
+          const tokenAddress = raw;
+          const amount = BigInt(it.amount ?? 0);
+          
+          if (amount > 0n && ethers.isAddress(tokenAddress)) {
+            console.log('[GiftEscrow] Generating approval for ERC20:', {
+              token: tokenAddress,
+              amount: amount.toString(),
+            });
+            
+            // Create ERC20 approval transaction
+            const erc20Iface = new ethers.Interface([
+              'function approve(address spender, uint256 amount) returns (bool)',
+            ]);
+            
+            const approvalData = erc20Iface.encodeFunctionData('approve', [
+              escrowAddress,
+              amount,
+            ]);
+            
+            approvalCalls.push({
+              data: approvalData,
+              value: '0',
+              description: `Approve ${it.contract.slice(0, 6)}... for transfer`,
+              tokenAddress: tokenAddress,
+            });
+          }
+        }
+      }
+
+      // Step 2b: Add all assets to the gift pack (collect all in a list)
       const addAssetCalls: Array<{ data: string; value: string }> = [];
       for (const it of pack.items) {
         const raw = String(it.contract || '');
@@ -451,6 +488,14 @@ export class GiftpacksService {
             value: '0',
             description: 'Create gift pack',
           },
+          // Add approval transactions for ERC20 tokens first
+          ...approvalCalls.map((call) => ({
+            to: call.tokenAddress,
+            data: call.data,
+            value: call.value,
+            description: call.description,
+          })),
+          // Then add the assets to the gift pack
           ...addAssetCalls.map((call, idx) => ({
             to: escrowAddress,
             data: call.data,

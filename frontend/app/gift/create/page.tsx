@@ -261,8 +261,9 @@ const CreatePack: React.FC = () => {
         return isNativeEth;
       });
       
-      // Force backend flow for native ETH since contract doesn't support it directly
-      if (allERC20 && state.items.length > 0 && isContractAvailable() && !hasNativeEth) {
+      // Always use backend flow - it handles approvals correctly before transfers
+      // Direct contract interaction is disabled because it doesn't handle ERC20 approvals properly
+      if (false && allERC20 && state.items.length > 0 && isContractAvailable() && !hasNativeEth) {
         try {
         console.log('Multi-token gift pack items:', state.items.map(item => ({
           contract: item.contract,
@@ -352,14 +353,51 @@ const CreatePack: React.FC = () => {
               throw new Error(`FALLBACK_TO_BACKEND: ${item.symbol} requires backend processing`);
             }
             
-            setToast({ open: true, msg: `Approving ${item.symbol}...`, severity: 'info' });
+            // STEP 1: Check current approval status
+            setToast({ open: true, msg: `Checking ${item.symbol} approval...`, severity: 'info' });
             
-            // Approve token
-            await approveToken(contractAddress, amountToUse);
+            try {
+              const approvalStatus = await checkTokenApproval(contractAddress, amountToUse);
+              
+              // STEP 2: If approval not granted, request it from user
+              if (!approvalStatus.hasApproval) {
+                setToast({ open: true, msg: `Requesting approval for ${item.symbol}...`, severity: 'info' });
+                console.log(`[Approval] Token ${item.symbol} needs approval`, {
+                  currentAllowance: approvalStatus.currentAllowance.toString(),
+                  requiredAmount: approvalStatus.requiredAmount.toString(),
+                  decimals: approvalStatus.decimals
+                });
+                
+                await approveToken(contractAddress, amountToUse);
+                
+                // VERIFICATION: Double-check approval was set
+                setToast({ open: true, msg: `Verifying ${item.symbol} approval...`, severity: 'info' });
+                const verifyApproval = await checkTokenApproval(contractAddress, amountToUse);
+                
+                if (!verifyApproval.hasApproval) {
+                  throw new Error(
+                    `Approval verification failed for ${item.symbol}. ` +
+                    `Please try again or approve manually in your wallet. ` +
+                    `Approved: ${verifyApproval.currentAllowance.toString()}, Required: ${verifyApproval.requiredAmount.toString()}`
+                  );
+                }
+                
+                setToast({ open: true, msg: `${item.symbol} approved! Proceeding with lock...`, severity: 'success' });
+              } else {
+                setToast({ open: true, msg: `${item.symbol} already approved. Proceeding with lock...`, severity: 'info' });
+                console.log(`[Approval] Token ${item.symbol} already has sufficient approval`, {
+                  currentAllowance: approvalStatus.currentAllowance.toString(),
+                  requiredAmount: approvalStatus.requiredAmount.toString()
+                });
+              }
+            } catch (approvalError: any) {
+              console.error(`[Approval] Failed to check/grant approval for ${item.symbol}:`, approvalError);
+              throw new Error(`Approval failed for ${item.symbol}: ${approvalError.message}`);
+            }
             
+            // STEP 3: Lock gift on blockchain directly (after approval is confirmed)
             setToast({ open: true, msg: `Locking ${item.symbol}...`, severity: 'info' });
             
-            // Lock gift on blockchain directly
             const lockResult = await lockGiftOnChain(
               contractAddress,
               amountToUse,
@@ -371,6 +409,7 @@ const CreatePack: React.FC = () => {
             
             if (lockResult?.success && lockResult.giftId) {
               giftIds.push(lockResult.giftId);
+              setToast({ open: true, msg: `${item.symbol} locked successfully!`, severity: 'success' });
             } else {
               throw new Error(`Failed to lock ${item.symbol} gift`);
             }
@@ -405,7 +444,25 @@ const CreatePack: React.FC = () => {
           throw new Error('No tokens were successfully locked');
         }
         } catch (directError: any) {
-          console.warn('Direct contract interaction failed, falling back to backend:', directError.message);
+          console.warn('Direct contract interaction failed, checking error type:', directError.message);
+          
+          // Check if it's an approval-related error
+          const isApprovalError = 
+            directError.message?.includes('Approval') ||
+            directError.message?.includes('approval') ||
+            directError.message?.includes('approve') ||
+            directError.message?.includes('User denied') ||
+            directError.message?.includes('insufficient allowance');
+          
+          if (isApprovalError) {
+            setToast({ 
+              open: true, 
+              msg: `Approval issue: ${directError.message}. Please approve tokens in your wallet.`, 
+              severity: 'error' 
+            });
+            console.error('[Approval Error]', directError);
+            throw directError; // Don't fall back to backend for approval errors
+          }
           
           // If it's a fallback error or any contract interaction error, use backend
           if (directError.message.includes('FALLBACK_TO_BACKEND') || 
@@ -479,9 +536,23 @@ const CreatePack: React.FC = () => {
       }
     } catch (e: any) {
       console.error('Lock gift error:', e);
-      setToast({ open: true, msg: e?.message || 'Failed to lock gift on blockchain', severity: 'error' });
+      
+      // Enhanced error messaging
+      let errorMessage = e?.message || 'Failed to lock gift on blockchain';
+      
+      if (errorMessage.includes('missing revert data')) {
+        errorMessage = 'Smart contract call failed. This usually means: (1) Tokens not approved, (2) Insufficient balance, or (3) Contract issue. Try approving tokens manually in MetaMask first.';
+      } else if (errorMessage.includes('User denied')) {
+        errorMessage = 'You rejected the transaction. Please try again and approve the transaction in your wallet.';
+      } else if (errorMessage.includes('Insufficient')) {
+        errorMessage = `${errorMessage} - Make sure you have enough tokens AND enough gas (ETH).`;
+      } else if (errorMessage.includes('Approval')) {
+        errorMessage = `Approval failed: ${errorMessage} - Try approving with a higher gas limit in MetaMask.`;
+      }
+      
+      setToast({ open: true, msg: errorMessage, severity: 'error' });
       // Also surface the error in-page for clarity
-      setError(e?.message || 'Failed to lock gift on blockchain');
+      setError(errorMessage);
     } finally {
       setLockBusy(false);
     }

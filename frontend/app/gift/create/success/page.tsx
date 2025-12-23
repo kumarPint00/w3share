@@ -34,12 +34,15 @@ export default function GiftReady() {
   const [txCopied, setTxCopied] = useState(false);
   const escrowCtx = useContext(EscrowContext);
 
+  // Get the origin for sharing URLs (works in browser environment)
+  const origin = typeof window !== 'undefined' ? window.location.origin : process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+
   // Always prioritize gift code for sharing, as that's what recipients need to claim
   const shareUrl = giftCode 
-    ? `${location.origin}/gift/claim?giftCode=${giftCode}`
+    ? `${origin}/gift/claim?giftCode=${giftCode}`
     : giftId 
-    ? `${location.origin}/gift/claim?giftId=${giftId}`
-    : `${location.origin}/gift/claim`;
+    ? `${origin}/gift/claim?giftId=${giftId}`
+    : `${origin}/gift/claim`;
 
   const copyLink = () => {
     navigator.clipboard.writeText(shareUrl);

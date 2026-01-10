@@ -381,21 +381,12 @@ export class GiftpacksService {
         signerAddress: this.signer?.address,
       });
 
-      // Generate transaction data without executing
-      // Step 1: Create the gift pack
+      // Generate transaction data using the batch method
+      // This combines: create + approvals + add assets + lock into ONE transaction
       const iface = (this.escrowContract as any).interface;
-      console.log('[GiftEscrow] Creating encoded function data for createGiftPack');
-      const createData = iface.encodeFunctionData('createGiftPack', [expiryTs, message, codeHash]);
-      console.log('[GiftEscrow] createGiftPack encoded successfully:', { dataLength: createData.length });
-      
-      console.log('[GiftEscrow] Generated createGiftPack transaction:', {
-        selector: createData.slice(0, 10),
-        dataLength: createData.length,
-        codeHashHex: codeHash,
-      });
 
-      // Step 2a: Generate approval transactions for ERC20 tokens
-      const approvalCalls: Array<{ data: string; value: string; description: string; tokenAddress: string }> = [];
+      // Step 1: Prepare approval calls (ERC20 tokens only)
+      const approvalCalls: Array<{ tokenAddress: string; data: string }> = [];
       for (const it of pack.items) {
         const raw = String(it.contract || '');
         const isNative = raw.toLowerCase() === 'native';
@@ -406,12 +397,12 @@ export class GiftpacksService {
           const amount = BigInt(it.amount ?? 0);
           
           if (amount > 0n && ethers.isAddress(tokenAddress)) {
-            console.log('[GiftEscrow] Generating approval for ERC20:', {
+            console.log('[GiftEscrow] Preparing approval for ERC20:', {
               token: tokenAddress,
               amount: amount.toString(),
             });
             
-            // Create ERC20 approval transaction
+            // Create ERC20 approval transaction data
             const erc20Iface = new ethers.Interface([
               'function approve(address spender, uint256 amount) returns (bool)',
             ]);
@@ -422,17 +413,17 @@ export class GiftpacksService {
             ]);
             
             approvalCalls.push({
-              data: approvalData,
-              value: '0',
-              description: `Approve ${it.contract.slice(0, 6)}... for transfer`,
               tokenAddress: tokenAddress,
+              data: approvalData,
             });
           }
         }
       }
 
-      // Step 2b: Add all assets to the gift pack (collect all in a list)
-      const addAssetCalls: Array<{ data: string; value: string }> = [];
+      // Step 2: Prepare asset calls (all assets: ERC20, ERC721, ETH)
+      const assetCalls: Array<{ assetType: number; tokenAddress: string; tokenId: string; amount: string }> = [];
+      let totalEthValue = 0n;
+
       for (const it of pack.items) {
         const raw = String(it.contract || '');
         const isNative = raw.toLowerCase() === 'native';
@@ -451,22 +442,37 @@ export class GiftpacksService {
         const amount = BigInt(it.amount ?? 0);
         const tokenId = BigInt(it.tokenId ?? 0);
 
-        const addAssetData = iface.encodeFunctionData('addAssetToGiftPack', [
-          codeHash,
-          assetTypeNum,
-          tokenAddress,
-          tokenId,
-          amount,
-        ]);
+        if (isNative) {
+          totalEthValue += amount;
+        }
 
-        addAssetCalls.push({
-          data: addAssetData,
-          value: isNative ? amount.toString() : '0',
+        assetCalls.push({
+          assetType: assetTypeNum,
+          tokenAddress: tokenAddress,
+          tokenId: tokenId.toString(),
+          amount: amount.toString(),
         });
       }
 
-      // Step 3: Lock the gift pack
-      const lockData = iface.encodeFunctionData('lockGiftPack', [codeHash]);
+      console.log('[GiftEscrow] Prepared batch operation:', {
+        approvalCount: approvalCalls.length,
+        assetCount: assetCalls.length,
+        totalEthValue: totalEthValue.toString(),
+      });
+
+      // Step 3: Encode the batch transaction
+      const batchData = iface.encodeFunctionData('createAndLockGiftBatch', [
+        expiryTs,
+        message,
+        codeHash,
+        approvalCalls,  // Array of {tokenAddress, data}
+        assetCalls,     // Array of {assetType, tokenAddress, tokenId, amount}
+      ]);
+
+      console.log('[GiftEscrow] Batch transaction encoded successfully:', {
+        dataLength: batchData.length,
+        codeHashHex: codeHash,
+      });
 
       // Update database with locked status (will be marked truly locked after user executes)
       await this.prisma.giftPack.update({
@@ -477,38 +483,33 @@ export class GiftpacksService {
         },
       });
 
+      // Return transactions: approvals FIRST, then batch
+      // User must execute approvals before batch, so approvals can set the allowance
+      const transactionsToReturn: any[] = [];
+
+      // Add approval transactions
+      for (const approval of approvalCalls) {
+        transactionsToReturn.push({
+          to: approval.tokenAddress,
+          data: approval.data,
+          value: '0',
+          description: `Approve tokens for gift creation`,
+        });
+      }
+
+      // Add the batch transaction
+      transactionsToReturn.push({
+        to: escrowAddress,
+        data: batchData,
+        value: totalEthValue.toString(),
+        description: 'Create gift pack, add all assets, and lock',
+      });
+
       return {
         success: true,
-        message: 'Gift pack transactions prepared - sign and execute from your wallet',
+        message: `Gift pack ready - approve ${approvalCalls.length} token(s), then create, add assets, and lock in final transaction`,
         giftCode,
-        transactions: [
-          {
-            to: escrowAddress,
-            data: createData,
-            value: '0',
-            description: 'Create gift pack',
-          },
-          // Add approval transactions for ERC20 tokens first
-          ...approvalCalls.map((call) => ({
-            to: call.tokenAddress,
-            data: call.data,
-            value: call.value,
-            description: call.description,
-          })),
-          // Then add the assets to the gift pack
-          ...addAssetCalls.map((call, idx) => ({
-            to: escrowAddress,
-            data: call.data,
-            value: call.value,
-            description: `Add asset ${idx + 1}`,
-          })),
-          {
-            to: escrowAddress,
-            data: lockData,
-            value: '0',
-            description: 'Lock gift pack',
-          },
-        ],
+        transactions: transactionsToReturn,
       };
     } catch (error: any) {
       if (error?.code) {

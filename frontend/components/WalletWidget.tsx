@@ -12,7 +12,7 @@ import {
 import { useEffect, useState } from 'react';
 
 export default function WalletWidget() {
-  const { provider, address, connect, disconnect } = useWallet();
+  const { provider, address, connect, disconnect, connectionRejected, clearConnectionRejection } = useWallet();
   const connected = !!address;
   const [ethBal, setEthBal] = useState<number | undefined>(undefined);
   const [err, setErr] = useState<string | null>(null);
@@ -64,6 +64,36 @@ export default function WalletWidget() {
   }
 
   if (!connected) {
+    // Show rejection message and stop re-prompting
+    if (connectionRejected) {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Typography sx={{ fontSize: 12, color: 'error.main', fontWeight: 500 }}>
+            ✗ Connection rejected
+          </Typography>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={async () => {
+              try {
+                console.log('[WalletWidget] Retrying after rejection');
+                setErr(null);
+                await connect();
+                clearConnectionRejection();
+              } catch (e: any) {
+                console.error('[WalletWidget] Retry failed:', e);
+                const errorMessage = e?.message || 'Failed to connect wallet';
+                setErr(errorMessage);
+              }
+            }}
+            sx={{ textTransform: 'none', borderRadius: 999, px: 2, py: 0.5 }}
+          >
+            Try Again
+          </Button>
+        </Box>
+      );
+    }
+
     return (
       <>
         <Button
@@ -96,7 +126,7 @@ export default function WalletWidget() {
         {err && (
           <Box sx={{ fontSize: 12, color: 'error.main', mt: 1 }}>
             {err.includes('MetaMask not found')
-              ? 'MetaMask not detected. On mobile, you’ll be redirected to open this page inside MetaMask.'
+              ? 'MetaMask not detected. On mobile, you will be redirected to open this page inside MetaMask.'
               : err}
           </Box>
         )}

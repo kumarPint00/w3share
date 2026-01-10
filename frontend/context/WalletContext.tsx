@@ -14,6 +14,8 @@ interface WalletCtx {
   address:  string | null;
   connect:  () => Promise<void>;
   disconnect: () => void;
+  connectionRejected: boolean;
+  clearConnectionRejection: () => void;
 }
 
 /* default stub */
@@ -22,17 +24,22 @@ const Ctx = createContext<WalletCtx>({
   address:  null,
   connect:  async () => {},
   disconnect: () => {},
+  connectionRejected: false,
+  clearConnectionRejection: () => {},
 });
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const [provider, setProv] = useState<ethers.BrowserProvider | null>(null);
   const [address,  setAddr] = useState<string | null>(null);
+  const [connectionRejected, setConnectionRejected] = useState(false);
   const rawProvRef = useRef<any | null>(null);
   const onAccountsChanged = useRef<((accs: string[]) => void) | null>(null);
   const onChainChanged = useRef<((chainId: string) => void) | null>(null);
+  
   const connect = async () => {
     try {
       console.log('[WalletContext] Starting wallet connection...');
+      setConnectionRejected(false);  // Clear rejection state on new attempt
       
       // Direct access to window.ethereum instead of using detect-provider
       if (typeof window === 'undefined') {
@@ -83,10 +90,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       raw.on?.('chainChanged', onChainChanged.current);
       
       console.log('[WalletContext] Connection successful!');
-    } catch (error) {
+    } catch (error: any) {
       console.error('[WalletContext] Connection failed:', error);
+      
+      // Check if user rejected the request (MetaMask error code 4001)
+      if (error?.code === 4001 || error?.message?.includes('rejected')) {
+        console.log('[WalletContext] User rejected wallet connection');
+        setConnectionRejected(true);
+      }
+      
       throw error;
     }
+  };
+
+  const clearConnectionRejection = () => {
+    console.log('[WalletContext] Clearing connection rejection state');
+    setConnectionRejected(false);
   };
 
   const clearCachedConnectors = () => {
@@ -171,7 +190,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <Ctx.Provider value={{ provider, address, connect, disconnect }}>
+    <Ctx.Provider value={{ provider, address, connect, disconnect, connectionRejected, clearConnectionRejection }}>
       {children}
     </Ctx.Provider>
   );

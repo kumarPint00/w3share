@@ -2,16 +2,43 @@
   {
     "contract": "native",
     "symbol": "ETH",
-    "decimals": 18
+    "name": "Ethereum",
+    "decimals": 18,
+    "image": "/tokens/ethereum-eth-logo.png"
   },
   {
     "contract": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
     "symbol": "USDC",
-    "decimals": 6
+    "name": "USD Coin",
+    "decimals": 6,
+    "image": "/tokens/Circle_USDC_Logo.svg"
   },
   {
     "contract": "0xdAC17F958D2ee523a2206206994597C13D831ec7",
     "symbol": "USDT",
-    "decimals": 6
+    "name": "Tether",
+    "decimals": 6,
+    "image": "/usdt.png"
+  },
+  {
+    "contract": "0x779877a7b0d9e8603169ddbd7836e478b462478b",
+    "symbol": "LINK",
+    "name": "ChainLink Token",
+    "decimals": 18,
+    "image": "/tokens/chainlink-link-logo.png"
+  },
+  {
+    "contract": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
+    "symbol": "LINK",
+    "name": "ChainLink Token (Sepolia)",
+    "decimals": 18,
+    "image": "/tokens/chainlink-link-logo.png"
+  },
+  {
+    "contract": "0xdd13E55209Fd76AfE204dBda4007C227904f0a81",
+    "symbol": "WETH",
+    "name": "Wrapped Ether",
+    "decimals": 18,
+    "image": "/tokens/ethereum-eth-logo.png"
   }
 ]

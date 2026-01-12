@@ -42,7 +42,7 @@ export default function WalletWidget() {
   }, [provider, address]);
 
   useEffect(() => {
-    const shouldLogin = connected && provider && !hasToken && !authing;
+    const shouldLogin = connected && provider && !hasToken && !authing && !authErr;
     if (!shouldLogin) return;
 
     (async () => {
@@ -52,12 +52,17 @@ export default function WalletWidget() {
         await walletLogin(provider!);
         setHasToken(true);
       } catch (e: any) {
-        setAuthErr(e?.message || 'Failed to sign in');
+        if (e?.code === 4001 || e?.message?.includes('rejected')) {
+          console.log('[WalletWidget] User rejected signing');
+          setAuthErr('Signature rejected. Please click "Sign in" to try again.');
+        } else {
+          setAuthErr(e?.message || 'Failed to sign in');
+        }
       } finally {
         setAuthing(false);
       }
     })();
-  }, [connected, provider, hasToken, authing]);
+  }, [connected, provider, hasToken, authing, authErr]);
 
   if (connected && ethBal === undefined) {
     return <CircularProgress size={22} sx={{ mx: 2 }} />;
@@ -142,7 +147,11 @@ export default function WalletWidget() {
       await walletLogin(provider);
       setHasToken(true);
     } catch (e: any) {
-      setAuthErr(e?.message || 'Failed to sign in');
+      if (e?.code === 4001 || e?.message?.includes('rejected')) {
+        setAuthErr('Signature rejected. Please try again.');
+      } else {
+        setAuthErr(e?.message || 'Failed to sign in');
+      }
     } finally {
       setAuthing(false);
     }

@@ -169,7 +169,11 @@ export class AssetsService {
 
   /* --- Allow-list --- */
   getAllowList() {
-    return require('../config/allowedToken.json');
+    const path = require('path');
+    const fs = require('fs');
+    // Use project root (process.cwd()) to always find the file correctly
+    const configPath = path.join(process.cwd(), 'src/config/allowedToken.json');
+    return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
   }
 
   async getTokenMetadata(contract: string, chainId: number = 11155111) {

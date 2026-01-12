@@ -120,6 +120,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
             rawAmount: raw,
             decimals,
             formattedAmount: formatted,
+            image: meta?.image || it.image,
           };
         });
         setPreviewGift({ ...gift, items: enrichedItems });

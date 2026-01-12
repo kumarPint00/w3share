@@ -96,8 +96,9 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
               width: 40,
               height: 40,
             }}
+            src={item.image || undefined}
           >
-            {isNFT ? <TokenIcon /> : <MoneyIcon />}
+            {!item.image && (isNFT ? <TokenIcon /> : <MoneyIcon />)}
           </Avatar>
 
           <Box flex={1}>

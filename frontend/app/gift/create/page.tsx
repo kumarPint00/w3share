@@ -157,10 +157,28 @@ const CreatePack: React.FC = () => {
 
   const ensureAuth = async () => {
     if (!provider || !address) {
-      await connect();
-      if (!provider || !address) throw new Error('Connect wallet to continue');
+      try {
+        await connect();
+      } catch (e: any) {
+        if (e?.code === 4001 || e?.message?.includes('rejected')) {
+          throw new Error('Wallet connection rejected. Please connect your wallet to continue.');
+        }
+        throw new Error('Failed to connect wallet. Please try again.');
+      }
+      
+      if (!provider || !address) {
+        throw new Error('Failed to connect wallet. Please try again.');
+      }
     }
-    await walletLogin(provider);
+    
+    try {
+      await walletLogin(provider);
+    } catch (e: any) {
+      if (e?.code === 4001 || e?.message?.includes('rejected')) {
+        throw new Error('Signature rejected. Please sign the message to continue.');
+      }
+      throw new Error('Failed to sign message. Please try again.');
+    }
   };
 
   const handleGenerateCode = async () => {
@@ -867,22 +885,36 @@ const CreatePack: React.FC = () => {
                         return (
                           <Box key={item.id} sx={{ display: 'flex', alignItems: 'center', gap: 1.5, justifyContent: 'space-between' }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                              <Box
-                                sx={{
-                                  width: 32,
-                                  height: 32,
-                                  borderRadius: '50%',
-                                  backgroundColor: '#eef2ff',
-                                  color: '#4f63ff',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  justifyContent: 'center',
-                                  fontWeight: 700,
-                                  fontSize: '0.85rem',
-                                }}
-                              >
-                                {tokenInitial}
-                              </Box>
+                              {(item as any).image ? (
+                                <Box
+                                  component="img"
+                                  src={(item as any).image}
+                                  alt={item.symbol}
+                                  sx={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: '50%',
+                                    objectFit: 'contain',
+                                  }}
+                                />
+                              ) : (
+                                <Box
+                                  sx={{
+                                    width: 32,
+                                    height: 32,
+                                    borderRadius: '50%',
+                                    backgroundColor: '#eef2ff',
+                                    color: '#4f63ff',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    fontWeight: 700,
+                                    fontSize: '0.85rem',
+                                  }}
+                                >
+                                  {tokenInitial}
+                                </Box>
+                              )}
                               <Box>
                                 <Typography sx={{ fontSize: '0.95rem', color: '#111e54', fontWeight: 600 }}>
                                   {item.symbol || item.name}

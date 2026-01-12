@@ -29,6 +29,7 @@ import GiftPreviewCard from '@/components/GiftPreviewCard';
 import { useSearchParams } from 'next/navigation';
 import { walletLogin, getGiftPackDetails } from '@/lib/api';
 import { GiftItem } from '@/types/gift';
+import { useAllowList } from '@/lib/hooks/useAllowList';
 export default function ClaimGiftPage() {
 
   const [claimedGift, setClaimedGift] = useState<{ message?: string; items?: any[], claimed?: boolean, claimer?: string } | null>(null);
@@ -37,7 +38,84 @@ export default function ClaimGiftPage() {
   const { provider, address, connect } = useWallet();
   const { tokens, loading: tokensLoading, error: tokensError } = useWalletTokens(provider, address);
   const { nfts, loading: nftsLoading, error: nftsError } = useWalletNfts(address);
+  const { allowList } = useAllowList();
 
+  // Memoize the allow-list map
+  const allowMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    allowList?.forEach((t: any) => {
+      const contract = t.contract?.toLowerCase?.();
+      if (contract) {
+        map[contract] = t;
+      }
+      if (t.contract === 'native') {
+        map['native'] = t;
+      }
+    });
+    return map;
+  }, [allowList]);
+
+  // Memoize enriched tokens
+  const enrichedTokens = useMemo(() => {
+    if (!tokens || tokens.length === 0) return [];
+    
+    // Fallback mapping for token logos from public folder
+    const tokenLogoMap: Record<string, string> = {
+      'eth': '/eth.png',
+      'ethereum': '/eth.png',
+      'ethereum sepolia': '/eth.png',
+      'link': '/link.png',
+      'chainlink': '/link.png',
+      'chainlink token': '/link.png',
+      'chainlink token (sepolia)': '/link.png',
+      'usdc': '/tokens/Circle_USDC_Logo.svg',
+      'usd coin': '/tokens/Circle_USDC_Logo.svg',
+      'usd coin (sepolia)': '/tokens/Circle_USDC_Logo.svg',
+      'usdt': '/eth.png',
+      'tether': '/eth.png',
+      'weth': '/eth.png',
+      'wrapped ether': '/eth.png',
+    };
+    
+    return tokens.map((t: any) => {
+      let image = t.image;
+      
+      // Primary: check allowMap by contract address
+      let key = '';
+      if (t.isNative) {
+        key = 'native';
+      } else {
+        key = (t.address || t.contractAddress || t.contract || '').toLowerCase();
+      }
+      const meta = allowMap[key];
+      if (meta?.image) {
+        image = meta.image;
+      }
+      
+      // Fallback: use symbol-based lookup
+      if (!image && t.symbol) {
+        const symbolKey = t.symbol.toLowerCase();
+        if (tokenLogoMap[symbolKey]) {
+          image = tokenLogoMap[symbolKey];
+        } else if (t.name) {
+          const nameKey = t.name.toLowerCase();
+          if (tokenLogoMap[nameKey]) {
+            image = tokenLogoMap[nameKey];
+          }
+        }
+      }
+      
+      // Final fallback
+      if (!image) {
+        image = '/gift-icon.png';
+      }
+      
+      return {
+        ...t,
+        image,
+      };
+    });
+  }, [tokens, allowMap]);
 
   useEffect(() => {
     (async () => {
@@ -49,7 +127,6 @@ export default function ClaimGiftPage() {
           }
         }
       } catch (e) {
-
         console.warn('Wallet auth failed:', e);
       }
     })();
@@ -95,6 +172,7 @@ export default function ClaimGiftPage() {
             rawAmount: raw,
             decimals,
             formattedAmount: formatted,
+            image: meta?.image || it.image,
           };
         });
         setPreviewGift({ ...preview, items: enrichedItems });
@@ -236,19 +314,15 @@ export default function ClaimGiftPage() {
                     <Typography fontSize={14} color="text.secondary">No tokens found.</Typography>
                   ) : (
                     <List dense disablePadding>
-                      {tokens.map((t, i) => (
+                      {enrichedTokens.map((t, i) => (
                         <>
                           <ListItem key={t.id} sx={{ py: 1 }}>
                             <ListItemAvatar>
-                              <Avatar sx={{ bgcolor: 'transparent' }}>
-                                <Image
-                                  src={t.image || '/gift-icon.png'}
-                                  alt={t.symbol}
-                                  width={28}
-                                  height={28}
-                                  style={{ width: 'auto', height: 'auto' }}
-                                />
-                              </Avatar>
+                              <Avatar 
+                                sx={{ bgcolor: 'transparent', width: 40, height: 40 }}
+                                src={t.image || '/gift-icon.png'}
+                                alt={t.symbol}
+                              />
                             </ListItemAvatar>
                             <ListItemText
                               primary={
@@ -264,7 +338,7 @@ export default function ClaimGiftPage() {
                               }
                             />
                           </ListItem>
-                          {i < tokens.length - 1 && <Divider component="li" />}
+                          {i < enrichedTokens.length - 1 && <Divider component="li" />}
                         </>
                       ))}
                     </List>

@@ -96,7 +96,8 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
 
       const ethEntry = await getEthEntry(provider, address, ethUsd);
 
-      const erc20sFromBackend: Token[] = body.map((b: any) => {
+      const erc20sFromBackend: Token[] = body
+        .map((b: any) => {
         const decimals = Number(b.decimals ?? 18);
         const chainId = Number(b.chainId ?? chainIdNum);
         
@@ -130,7 +131,9 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
         } as Token;
       });
 
-      const list = [ethEntry, ...erc20sFromBackend].sort((a, b) => (b.usd || 0) - (a.usd || 0));
+      const positiveTokens = erc20sFromBackend.filter((t) => t.balance > 0);
+
+      const list = [ethEntry, ...positiveTokens].sort((a, b) => (b.usd || 0) - (a.usd || 0));
       console.log('[useWalletTokens] Final token list:', { count: list.length, tokens: list.map(t => ({ symbol: t.symbol, balance: t.balance, id: t.id })) });
       return list;
     }

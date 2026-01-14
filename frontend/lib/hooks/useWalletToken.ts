@@ -124,7 +124,7 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
           chainId,
           balance: balance,
           usd: balance * (price || 0),
-          image: staticToken?.image || b.logoURI || '/tokens/default.png',
+          image: staticToken?.image || b.logoURI || '/gift-icon.png',
           type: 'ERC20',
           priceUsd: price || 0,
         } as Token;

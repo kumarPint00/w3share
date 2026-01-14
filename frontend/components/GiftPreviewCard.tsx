@@ -73,6 +73,8 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
   const isERC20 = item.type === 'ERC20';
   const isNFT = item.type === 'NFT';
 
+  console.log('[GiftItemDisplay] Rendering item:', item);
+  
   return (
     <Zoom in={true} style={{ transitionDelay: `${index * 100}ms` }}>
       <Paper
@@ -131,7 +133,7 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
          
         </Stack>
             {/* Show per-item token address (use contract/address on the item) */}
-            {item.contract && (
+            {/* {item.contract && (
               <Grid item xs={12}>
                 <Typography variant="caption" color="text.secondary">Token Address</Typography>
                 <Typography
@@ -141,7 +143,7 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
                   {item.contract}
                 </Typography>
               </Grid>
-            )}
+            )} */}
       </Paper>
     </Zoom>
   );

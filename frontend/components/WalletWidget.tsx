@@ -54,7 +54,9 @@ export default function WalletWidget() {
       } catch (e: any) {
         if (e?.code === 4001 || e?.message?.includes('rejected')) {
           console.log('[WalletWidget] User rejected signing');
-          setAuthErr('Signature rejected. Please click "Sign in" to try again.');
+          try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Transaction canceled', type: 'error' } })); } catch {}
+          // Do not set a persistent auth error; leave user disconnected
+          setAuthErr(null);
         } else {
           setAuthErr(e?.message || 'Failed to sign in');
         }
@@ -148,7 +150,8 @@ export default function WalletWidget() {
       setHasToken(true);
     } catch (e: any) {
       if (e?.code === 4001 || e?.message?.includes('rejected')) {
-        setAuthErr('Signature rejected. Please try again.');
+        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Transaction canceled', type: 'error' } })); } catch {}
+        setAuthErr(null);
       } else {
         setAuthErr(e?.message || 'Failed to sign in');
       }

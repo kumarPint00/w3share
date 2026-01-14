@@ -25,6 +25,8 @@ import { ethers } from 'ethers';
 import { useDirectContractInteraction } from '@/lib/hooks/useDirectContractInteraction';
 import Image from 'next/image';
 
+import { notifyWallet } from '@/lib/notify';
+
 // Helper function to execute backend-generated transactions with user's wallet
 async function executeBackendTransactions(
   transactions: Array<{ to: string; data: string; value: string; description: string }>,
@@ -161,6 +163,7 @@ const CreatePack: React.FC = () => {
         await connect();
       } catch (e: any) {
         if (e?.code === 4001 || e?.message?.includes('rejected')) {
+          try { notifyWallet('Wallet connection rejected', 'error'); } catch {}
           throw new Error('Wallet connection rejected. Please connect your wallet to continue.');
         }
         throw new Error('Failed to connect wallet. Please try again.');
@@ -175,6 +178,7 @@ const CreatePack: React.FC = () => {
       await walletLogin(provider);
     } catch (e: any) {
       if (e?.code === 4001 || e?.message?.includes('rejected')) {
+        try { notifyWallet('Transaction canceled', 'error'); } catch {}
         throw new Error('Signature rejected. Please sign the message to continue.');
       }
       throw new Error('Failed to sign message. Please try again.');
@@ -562,6 +566,7 @@ const CreatePack: React.FC = () => {
         errorMessage = 'Smart contract call failed. This usually means: (1) Tokens not approved, (2) Insufficient balance, or (3) Contract issue. Try approving tokens manually in MetaMask first.';
       } else if (errorMessage.includes('User denied')) {
         errorMessage = 'You rejected the transaction. Please try again and approve the transaction in your wallet.';
+        try { notifyWallet('Transaction canceled', 'error'); } catch {}
       } else if (errorMessage.includes('Insufficient')) {
         errorMessage = `${errorMessage} - Make sure you have enough tokens AND enough gas (ETH).`;
       } else if (errorMessage.includes('Approval')) {

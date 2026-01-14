@@ -236,6 +236,12 @@ export default function EnhancedClaimPage() {
       } else {
         setError(`Failed to submit claim: ${msg}`);
       }
+      // If the user explicitly rejected the transaction in their wallet, show bottom-left notification
+      try {
+        if (error?.code === 4001 || msg.toLowerCase().includes('user denied') || msg.toLowerCase().includes('rejected')) {
+          notifyWallet('Transaction canceled', 'error');
+        }
+      } catch {}
       setClaimSubmitted(true);
       setClaimSuccess(false);
     }

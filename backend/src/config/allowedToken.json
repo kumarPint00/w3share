@@ -29,10 +29,10 @@
   },
   {
     "contract": "0x1c7d4b196cb0c7b01d743fbc6116a902379c7238",
-    "symbol": "LINK",
-    "name": "ChainLink Token (Sepolia)",
-    "decimals": 18,
-    "image": "/tokens/chainlink-link-logo.png"
+    "symbol": "USDC",
+    "name": "USD Coin (Sepolia)",
+    "decimals": 6,
+    "image": "/tokens/Circle_USDC_Logo.svg"
   },
   {
     "contract": "0xdd13E55209Fd76AfE204dBda4007C227904f0a81",

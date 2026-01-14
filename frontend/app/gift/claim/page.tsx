@@ -30,6 +30,20 @@ import { useSearchParams } from 'next/navigation';
 import { walletLogin, getGiftPackDetails } from '@/lib/api';
 import { GiftItem } from '@/types/gift';
 import { useAllowList } from '@/lib/hooks/useAllowList';
+
+// Shared token logo map (module scope) - keys are lowered for convenience
+const TOKEN_LOGO_MAP: Record<string, string> = {
+  'eth': '/tokens/ethereum-eth-logo.png',
+  'ethereum': '/tokens/ethereum-eth-logo.png',
+  'ethereum sepolia': '/tokens/ethereum-eth-logo.png',
+  'link': '/tokens/chainlink-link-logo.png',
+  'chainlink': '/tokens/chainlink-link-logo.png',
+  'chainlink token': '/tokens/chainlink-link-logo.png',
+  'chainlink token (sepolia)': '/tokens/chainlink-link-logo.png',
+  'usdc': '/tokens/Circle_USDC_Logo.svg',
+  'usd coin': '/tokens/Circle_USDC_Logo.svg',
+  'usd coin (sepolia)': '/tokens/Circle_USDC_Logo.svg',
+};
 export default function ClaimGiftPage() {
 
   const [claimedGift, setClaimedGift] = useState<{ message?: string; items?: any[], claimed?: boolean, claimer?: string } | null>(null);
@@ -58,26 +72,9 @@ export default function ClaimGiftPage() {
   // Memoize enriched tokens
   const enrichedTokens = useMemo(() => {
     if (!tokens || tokens.length === 0) return [];
+    const tokenLogoMap = TOKEN_LOGO_MAP;
     
-    // Fallback mapping for token logos from public folder
-    const tokenLogoMap: Record<string, string> = {
-      'eth': '/eth.png',
-      'ethereum': '/eth.png',
-      'ethereum sepolia': '/eth.png',
-      'link': '/link.png',
-      'chainlink': '/link.png',
-      'chainlink token': '/link.png',
-      'chainlink token (sepolia)': '/link.png',
-      'usdc': '/tokens/Circle_USDC_Logo.svg',
-      'usd coin': '/tokens/Circle_USDC_Logo.svg',
-      'usd coin (sepolia)': '/tokens/Circle_USDC_Logo.svg',
-      'usdt': '/eth.png',
-      'tether': '/eth.png',
-      'weth': '/eth.png',
-      'wrapped ether': '/eth.png',
-    };
-    
-    return tokens.map((t: any) => {
+    const list = tokens.map((t: any) => {
       let image = t.image;
       
       // Primary: check allowMap by contract address
@@ -93,11 +90,14 @@ export default function ClaimGiftPage() {
       }
       
       // Fallback: use symbol-based lookup
-      if (!image && t.symbol) {
+      if (t.symbol) {
         const symbolKey = t.symbol.toLowerCase();
         if (tokenLogoMap[symbolKey]) {
+          if (image !== tokenLogoMap[symbolKey]) {
+            console.log('[ClaimPage] Overriding token image via symbol map', { symbol: t.symbol, previous: image, new: tokenLogoMap[symbolKey] });
+          }
           image = tokenLogoMap[symbolKey];
-        } else if (t.name) {
+        } else if (!image && t.name) {
           const nameKey = t.name.toLowerCase();
           if (tokenLogoMap[nameKey]) {
             image = tokenLogoMap[nameKey];
@@ -107,6 +107,7 @@ export default function ClaimGiftPage() {
       
       // Final fallback
       if (!image) {
+        console.warn('[ClaimPage] Token image missing for', { symbol: t.symbol, name: t.name, address: t.address });
         image = '/gift-icon.png';
       }
       
@@ -115,7 +116,27 @@ export default function ClaimGiftPage() {
         image,
       };
     });
+
+    console.log('[ClaimPage] Enriched wallet tokens:', list.map((x: any) => ({ symbol: x.symbol, name: x.name, image: x.image })));
+
+    return list;
   }, [tokens, allowMap]);
+
+  // Debug: detect token image collisions (two tokens using same image)
+  useEffect(() => {
+    if (!enrichedTokens || enrichedTokens.length === 0) return;
+    const imgMap: Record<string, string[]> = {};
+    enrichedTokens.forEach((t: any) => {
+      const img = t.image || '/gift-icon.png';
+      imgMap[img] = imgMap[img] || [];
+      if (!imgMap[img].includes(t.symbol)) imgMap[img].push(t.symbol);
+    });
+    Object.entries(imgMap).forEach(([img, syms]) => {
+      if (syms.length > 1 && img !== '/gift-icon.png') {
+        console.warn('[ClaimPage] Multiple tokens sharing same image', { image: img, symbols: syms.slice(0, 6) });
+      }
+    });
+  }, [enrichedTokens]);
 
   useEffect(() => {
     (async () => {
@@ -162,6 +183,19 @@ export default function ClaimGiftPage() {
             if (num >= 1) return num.toString();
             return num.toPrecision(3);
           })();
+
+          // Determine image with deterministic priority and symbol override
+          let image = meta?.image || it.image;
+          const sym = (meta?.symbol || it.symbol || it.name || '').toLowerCase();
+          if (sym && TOKEN_LOGO_MAP[sym]) {
+            if (image !== TOKEN_LOGO_MAP[sym]) {
+              console.log('[ClaimPage] Overriding preview item image with symbol map', { symbol: sym, previous: image, new: TOKEN_LOGO_MAP[sym] });
+            }
+            image = TOKEN_LOGO_MAP[sym];
+          }
+
+          if (!image) image = '/gift-icon.png';
+
           return {
             id: it.id || String(idx),
             name: it.contract === 'native' ? 'Ethereum' : (meta?.name || it.name || it.symbol || 'Token'),
@@ -172,7 +206,7 @@ export default function ClaimGiftPage() {
             rawAmount: raw,
             decimals,
             formattedAmount: formatted,
-            image: meta?.image || it.image,
+            image,
           };
         });
         setPreviewGift({ ...preview, items: enrichedItems });

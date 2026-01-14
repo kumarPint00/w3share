@@ -97,6 +97,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (error?.code === 4001 || error?.message?.includes('rejected')) {
         console.log('[WalletContext] User rejected wallet connection');
         setConnectionRejected(true);
+        // auto-clear rejection state after brief timeout so UI returns to normal
+        setTimeout(() => setConnectionRejected(false), 3500);
+        // notify global UI
+        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Wallet connection rejected', type: 'error' } })); } catch {}
       }
       
       throw error;

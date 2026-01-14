@@ -43,7 +43,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <EscrowProvider>
                 <WalletProvider>
                   <Navbar />
-                  {children}
+                      <WalletEventsListener />
+                      {children}
                   <Footer />
                 </WalletProvider>
               </EscrowProvider>
@@ -54,3 +55,4 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
+import WalletEventsListener from '@/components/WalletEventsListener';

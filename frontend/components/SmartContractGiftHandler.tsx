@@ -21,6 +21,7 @@ import {
 import { useERC20Balances, useUserNFTs } from '@/hooks/useAssets';
 import { GiftPack, CreateGiftPackData, AddItemToGiftPackData, ClaimResponse } from '@/lib/api';
 import { CircularProgress } from '@mui/material';
+import { notifyWallet } from '@/lib/notify';
 import WETHUnwrapHelper from './WETHUnwrapHelper';
 
 interface SmartContractGiftHandlerProps {
@@ -83,7 +84,13 @@ export default function SmartContractGiftHandler({
       router.push(`/gift/create/success?giftId=${result.lockResult.giftId}`);      
     } catch (error) {
       console.error('Failed to finalize gift:', error);
-      alert(`Failed to lock gift on blockchain: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      try {
+        if ((error as any)?.code === 4001 || String(msg).toLowerCase().includes('rejected') || String(msg).toLowerCase().includes('user denied')) {
+          notifyWallet('Transaction canceled', 'error');
+        }
+      } catch {}
+      alert(`Failed to lock gift on blockchain: ${msg}`);
       setIsNavigating(false);
     }
   };
@@ -110,7 +117,13 @@ export default function SmartContractGiftHandler({
       alert(message);
     } catch (error) {
       console.error('Failed to get claim data:', error);
-      alert(`Failed to get claim data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        const msg = error instanceof Error ? error.message : 'Unknown error';
+        try {
+          if ((error as any)?.code === 4001 || String(msg).toLowerCase().includes('rejected') || String(msg).toLowerCase().includes('user denied')) {
+            notifyWallet('Transaction canceled', 'error');
+          }
+        } catch {}
+        alert(`Failed to get claim data: ${msg}`);
     }
   };
 

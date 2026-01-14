@@ -55,28 +55,26 @@ export default function ClaimGiftPage() {
     return map;
   }, [allowList]);
 
+  // Token logo fallback map (shared)
+  const TOKEN_LOGO_MAP: Record<string, string> = {
+    'eth': '/tokens/ethereum-eth-logo.png',
+    'ethereum': '/tokens/ethereum-eth-logo.png',
+    'ethereum sepolia': '/tokens/ethereum-eth-logo.png',
+    'link': '/tokens/chainlink-link-logo.png',
+    'chainlink': '/tokens/chainlink-link-logo.png',
+    'chainlink token': '/tokens/chainlink-link-logo.png',
+    'chainlink token (sepolia)': '/tokens/chainlink-link-logo.png',
+    'usdc': '/tokens/Circle_USDC_Logo.svg',
+    'usd coin': '/tokens/Circle_USDC_Logo.svg',
+    'usd coin (sepolia)': '/tokens/Circle_USDC_Logo.svg',
+  };
+
   // Memoize enriched tokens
   const enrichedTokens = useMemo(() => {
     if (!tokens || tokens.length === 0) return [];
     
-    // Fallback mapping for token logos from public folder
-    const tokenLogoMap: Record<string, string> = {
-      'eth': '/eth.png',
-      'ethereum': '/eth.png',
-      'ethereum sepolia': '/eth.png',
-      'link': '/link.png',
-      'chainlink': '/link.png',
-      'chainlink token': '/link.png',
-      'chainlink token (sepolia)': '/link.png',
-      'usdc': '/tokens/Circle_USDC_Logo.svg',
-      'usd coin': '/tokens/Circle_USDC_Logo.svg',
-      'usd coin (sepolia)': '/tokens/Circle_USDC_Logo.svg',
-      'usdt': '/eth.png',
-      'tether': '/eth.png',
-      'weth': '/eth.png',
-      'wrapped ether': '/eth.png',
-    };
-    
+    const tokenLogoMap = TOKEN_LOGO_MAP;
+
     return tokens.map((t: any) => {
       let image = t.image;
       
@@ -107,6 +105,7 @@ export default function ClaimGiftPage() {
       
       // Final fallback
       if (!image) {
+        console.warn('[ClaimPage] Token image missing for', { symbol: t.symbol, name: t.name, address: t.address });
         image = '/gift-icon.png';
       }
       
@@ -162,6 +161,13 @@ export default function ClaimGiftPage() {
             if (num >= 1) return num.toString();
             return num.toPrecision(3);
           })();
+          let image = meta?.image || it.image;
+          if (!image) {
+            const sym = (meta?.symbol || it.symbol || it.name || '').toLowerCase();
+            if (sym && TOKEN_LOGO_MAP[sym]) image = TOKEN_LOGO_MAP[sym];
+          }
+          if (!image) image = '/gift-icon.png';
+
           return {
             id: it.id || String(idx),
             name: it.contract === 'native' ? 'Ethereum' : (meta?.name || it.name || it.symbol || 'Token'),
@@ -172,10 +178,11 @@ export default function ClaimGiftPage() {
             rawAmount: raw,
             decimals,
             formattedAmount: formatted,
-            image: meta?.image || it.image,
+            image,
           };
         });
         setPreviewGift({ ...preview, items: enrichedItems });
+        console.log('[ClaimPage] Preview enriched items:', enrichedItems.map(it => ({ symbol: it.symbol, name: it.name, image: it.image })));
       } catch {
         setPreviewGift(null);
       }

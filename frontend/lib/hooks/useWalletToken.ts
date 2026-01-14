@@ -29,7 +29,7 @@ async function getEthEntry(provider: ethers.BrowserProvider, address: string, et
 }
 
 async function getErc20Entry(p: ethers.BrowserProvider, wallet: string, meta: Erc20Meta, usdPrice: number): Promise<Token | null> {
-  try {
+        return {
     const network = await p.getNetwork();
     const chainIdNum = Number(network.chainId);
 
@@ -38,11 +38,15 @@ async function getErc20Entry(p: ethers.BrowserProvider, wallet: string, meta: Er
     const balRaw = await c.balanceOf(wallet);
     const balance = parseFloat(ethers.formatUnits(balRaw, meta.decimals));
     if (balance <= 0) return null;
-    return {
+          image: staticToken?.image || b.logoURI || '/gift-icon.png',
       id: meta.address.toLowerCase() + '-' + chainIdNum,
       name: meta.name + (chainIdNum === 11155111 ? ' (Sepolia)' : ''),
       symbol: meta.symbol,
       address: meta.address,
+      // Debug: log tokens and where image came from
+      erc20sFromBackend.forEach(t => {
+        console.log('[useWalletTokens] token:', { symbol: t.symbol, address: t.address, image: t.image });
+      });
       decimals: meta.decimals,
       chainId: chainIdNum,
       balance,
@@ -124,7 +128,7 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
           chainId,
           balance: balance,
           usd: balance * (price || 0),
-          image: staticToken?.image || b.logoURI || '/tokens/default.png',
+          image: staticToken?.image || b.logoURI || '/gift-icon.png',
           type: 'ERC20',
           priceUsd: price || 0,
         } as Token;

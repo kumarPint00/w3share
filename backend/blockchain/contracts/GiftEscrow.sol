@@ -57,6 +57,19 @@ contract GiftEscrow {
     event GiftPackExpired(bytes32 indexed codeHash);
     event AssetAddedToGiftPack(bytes32 indexed codeHash, uint256 assetIndex, uint8 assetType);
 
+    // Structs for batch operation
+    struct ApprovalCall {
+        address tokenAddress;
+        bytes data;
+    }
+
+    struct AddAssetCall {
+        uint8 assetType;
+        address tokenAddress;
+        uint256 tokenId;
+        uint256 amount;
+    }
+
 
     function validateGiftPackForLocking(
         uint256 expiryTimestamp,
@@ -97,6 +110,92 @@ contract GiftEscrow {
         allCodeHashes.push(codeHash);
 
         return codeHash;
+    }
+
+    /**
+     * @dev Batch operation: Create gift pack, execute approvals, add all assets, and lock in one transaction
+     * This reduces the number of user prompts from 7 to 1 by combining multiple operations
+     */
+    function createAndLockGiftBatch(
+        uint256 expiryTimestamp,
+        string calldata message,
+        bytes32 codeHash,
+        ApprovalCall[] calldata approvals,
+        AddAssetCall[] calldata assets
+    ) external payable nonReentrant {
+        require(codeHash != bytes32(0), "Code required");
+        require(expiryTimestamp > block.timestamp, "Expiry in past");
+        require(!codeHashExists[codeHash], "Code already used");
+        require(assets.length > 0, "At least one asset required");
+
+        // Step 1: Create gift pack
+        giftPacks[codeHash] = GiftPack({
+            sender: msg.sender,
+            expiryTimestamp: expiryTimestamp,
+            claimed: false,
+            message: message,
+            codeHash: codeHash,
+            assets: new Asset[](0)
+        });
+
+        codeHashExists[codeHash] = true;
+        allCodeHashes.push(codeHash);
+
+        // Step 2: Execute ERC20 approvals via low-level call
+        // The user must have pre-approved these tokens before calling this function
+        // The approvals array contains the encoded approve() calls that were already executed
+        for (uint256 i = 0; i < approvals.length; i++) {
+            ApprovalCall calldata approval = approvals[i];
+            (bool success, bytes memory result) = approval.tokenAddress.call(approval.data);
+            if (!success) {
+                if (result.length > 0) {
+                    assembly {
+                        let returndata_size := mload(result)
+                        revert(add(32, result), returndata_size)
+                    }
+                }
+                revert("Approval call failed");
+            }
+        }
+
+        // Step 3: Add all assets to the gift pack
+        GiftPack storage pack = giftPacks[codeHash];
+        uint256 totalEthValue = 0;
+
+        for (uint256 i = 0; i < assets.length; i++) {
+            AddAssetCall calldata assetCall = assets[i];
+            require(assetCall.assetType <= uint8(AssetType.ETH), "Bad assetType");
+
+            AssetType at = AssetType(assetCall.assetType);
+
+            if (at == AssetType.ETH) {
+                require(assetCall.amount > 0, "Amount > 0");
+                totalEthValue += assetCall.amount;
+            } else if (at == AssetType.ERC20) {
+                require(assetCall.tokenAddress != address(0), "Token address required");
+                require(assetCall.amount > 0, "Amount > 0");
+                IERC20(assetCall.tokenAddress).safeTransferFrom(msg.sender, address(this), assetCall.amount);
+            } else {
+                require(assetCall.tokenAddress != address(0), "Token address required");
+                require(assetCall.tokenId > 0, "tokenId > 0");
+                IERC721(assetCall.tokenAddress).safeTransferFrom(msg.sender, address(this), assetCall.tokenId);
+            }
+
+            pack.assets.push(Asset({
+                assetType: at,
+                tokenAddress: assetCall.tokenAddress,
+                tokenId: assetCall.tokenId,
+                amount: assetCall.amount
+            }));
+
+            emit AssetAddedToGiftPack(codeHash, pack.assets.length - 1, assetCall.assetType);
+        }
+
+        // Verify ETH value matches total ETH assets
+        require(msg.value == totalEthValue, "Incorrect ETH amount");
+
+        // Step 4: Lock the gift pack (atomic - all or nothing)
+        emit GiftPackLocked(codeHash, msg.sender, pack.assets.length, expiryTimestamp);
     }
 
 

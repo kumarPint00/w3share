@@ -145,7 +145,7 @@ export default function TokenPickerV2({
             >
               {/* avatar */}
               <ListItemIcon sx={{ minWidth: 36 }}>
-                {t.image && t.image !== '/tokens/default.png' ? (
+                {t.image && t.image !== '/gift-icon.png' ? (
                   <Image
                     src={t.image}
                     alt={t.symbol}

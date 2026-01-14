@@ -114,8 +114,7 @@ export class AssetsService {
               decimals: decimals,
               balance: tb.tokenBalance, // Keep raw hex for frontend conversion
               balanceFormatted: balance, // Provide formatted version
-              // Prefer on-chain/logo from Alchemy; otherwise fall back to a safe built-in icon
-              logoURI: meta.logo || '/gift-icon.png',
+              logoURI: meta.logo || `/tokens/${meta.symbol?.toLowerCase()}.png`,
               chainId,
             };
           } catch (tokenError) {
@@ -133,7 +132,7 @@ export class AssetsService {
               decimals: decimals,
               balance: tb.tokenBalance,
               balanceFormatted: balance,
-              logoURI: '/gift-icon.png',
+              logoURI: '/tokens/default.png',
               chainId,
             };
           }

@@ -8,12 +8,10 @@ import {
   Box,
   CircularProgress,
   Stack,
-  Snackbar,
 } from '@mui/material';
 import { useEffect, useState } from 'react';
 
 export default function WalletWidget() {
-
   const { provider, address, connect, disconnect, connectionRejected, clearConnectionRejection } = useWallet();
   const connected = !!address;
   const [ethBal, setEthBal] = useState<number | undefined>(undefined);
@@ -21,7 +19,6 @@ export default function WalletWidget() {
   const [authing, setAuthing] = useState(false);
   const [authErr, setAuthErr] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState<boolean>(false);
-  const [showRejectSnackbar, setShowRejectSnackbar] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -57,8 +54,7 @@ export default function WalletWidget() {
       } catch (e: any) {
         if (e?.code === 4001 || e?.message?.includes('rejected')) {
           console.log('[WalletWidget] User rejected signing');
-          setShowRejectSnackbar(true);
-          setTimeout(() => setShowRejectSnackbar(false), 3500);
+          setAuthErr('Signature rejected. Please click "Sign in" to try again.');
         } else {
           setAuthErr(e?.message || 'Failed to sign in');
         }
@@ -73,6 +69,36 @@ export default function WalletWidget() {
   }
 
   if (!connected) {
+    // Show rejection message and stop re-prompting
+    if (connectionRejected) {
+      return (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+          <Typography sx={{ fontSize: 12, color: 'error.main', fontWeight: 500 }}>
+            ✗ Connection rejected
+          </Typography>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={async () => {
+              try {
+                console.log('[WalletWidget] Retrying after rejection');
+                setErr(null);
+                await connect();
+                clearConnectionRejection();
+              } catch (e: any) {
+                console.error('[WalletWidget] Retry failed:', e);
+                const errorMessage = e?.message || 'Failed to connect wallet';
+                setErr(errorMessage);
+              }
+            }}
+            sx={{ textTransform: 'none', borderRadius: 999, px: 2, py: 0.5 }}
+          >
+            Try Again
+          </Button>
+        </Box>
+      );
+    }
+
     return (
       <>
         <Button
@@ -80,9 +106,12 @@ export default function WalletWidget() {
           size="small"
           onClick={async () => {
             try {
+              console.log('[WalletWidget] Connect button clicked');
               setErr(null);
               await connect();
+              console.log('[WalletWidget] Connect completed successfully');
             } catch (e: any) {
+              console.error('[WalletWidget] Connect error:', e);
               const errorMessage = e?.message || 'Failed to connect wallet';
               setErr(errorMessage);
             }
@@ -106,19 +135,6 @@ export default function WalletWidget() {
               : err}
           </Box>
         )}
-        <Snackbar
-          open={showRejectSnackbar || connectionRejected}
-          autoHideDuration={3500}
-          onClose={() => {
-            setShowRejectSnackbar(false);
-            clearConnectionRejection();
-          }}
-          anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
-        >
-          <Box sx={{ bgcolor: 'error.main', color: '#fff', px: 2.5, py: 1, borderRadius: 2, fontWeight: 600, fontSize: 15 }}>
-            Wallet connection rejected
-          </Box>
-        </Snackbar>
       </>
     );
   }
@@ -149,8 +165,7 @@ export default function WalletWidget() {
           {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : ''}
         </Typography>
       </Box>
-      {/* Only show sign-in if not rejected and not already authed */}
-      {(!hasToken && !authErr) && (
+      {(!hasToken || authErr) && (
         <Button
           variant="outlined"
           size="small"
@@ -171,7 +186,11 @@ export default function WalletWidget() {
       >
         Disconnect
       </Button>
-      {/* No persistent error for rejected sign-in */}
+      {authErr && (
+        <Box sx={{ fontSize: 12, color: 'error.main', ml: 1 }}>
+          {authErr}
+        </Box>
+      )}
     </Stack>
   );
 }

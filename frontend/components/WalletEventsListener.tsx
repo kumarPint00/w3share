@@ -1,116 +1,77 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogActions,
-  Button,
-  Typography,
-  Stack,
-  Box,
-  Slide,
-  SlideProps,
-} from '@mui/material';
-import InfoIcon from '@mui/icons-material/InfoOutlined';
-import ErrorIcon from '@mui/icons-material/ErrorOutline';
-import WarningIcon from '@mui/icons-material/WarningAmberOutlined';
-import { amber, blue, red } from '@mui/material/colors';
-
-const transition = (props: SlideProps) => <Slide {...props} direction="down" />;
-
-const severityStyles = {
-  info: { icon: InfoIcon, bg: blue[50], color: blue[700] },
-  warning: { icon: WarningIcon, bg: amber[50], color: amber[900] },
-  error: { icon: ErrorIcon, bg: red[50], color: red[700] },
-};
+import { Snackbar, Alert, IconButton } from '@mui/material';
+import CloseIcon from '@mui/icons-material/Close';
 
 type Severity = 'info' | 'warning' | 'error';
+
+// Minimum display time for toasts (milliseconds)
+const MIN_TOAST_MS = 3000;
+// Maximum display time cap
+const MAX_TOAST_MS = 15000;
+
+function computeDuration(message: string | undefined, explicit?: number) {
+  if (typeof explicit === 'number') return explicit;
+  const len = message ? message.length : 0;
+  // Give ~120ms per character as base, with min and max bounds
+  const estimated = Math.min(MAX_TOAST_MS, Math.max(MIN_TOAST_MS, Math.floor(len * 120)));
+  return estimated;
+}
 
 export default function WalletEventsListener() {
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState('');
   const [severity, setSeverity] = useState<Severity>('info');
-  const [duration, setDuration] = useState(4000);
+  const [autoHideDuration, setAutoHideDuration] = useState<number>(MIN_TOAST_MS);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const handler = (e: any) => {
       const detail = e?.detail || {};
-      setMsg(detail.message || 'Notification');
-      const nextSeverity: Severity = detail.type === 'error'
-        ? 'error'
-        : detail.type === 'warning'
-          ? 'warning'
-          : 'info';
-      setSeverity(nextSeverity);
-      setDuration(detail.duration ?? (nextSeverity === 'warning' ? 6000 : nextSeverity === 'error' ? 7000 : 4000));
+      const message = detail.message || '';
+      const type: Severity = detail.type === 'error' ? 'error' : detail.type === 'warning' ? 'warning' : 'info';
+      const duration = computeDuration(message, detail.duration);
+
+      setMsg(message);
+      setSeverity(type);
+      setAutoHideDuration(duration);
       setOpen(true);
     };
     window.addEventListener('wallet:notification', handler as EventListener);
     return () => window.removeEventListener('wallet:notification', handler as EventListener);
   }, []);
 
+  // Ensure the snackbar respects the computed duration (and clears timers cleanly)
   useEffect(() => {
     if (!open) return;
     if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => setOpen(false), duration);
+    timerRef.current = setTimeout(() => setOpen(false), autoHideDuration);
     return () => {
       if (timerRef.current) {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
     };
-  }, [open, duration]);
+  }, [open, autoHideDuration]);
 
   return (
-    <Dialog
+    <Snackbar
       open={open}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
       onClose={() => setOpen(false)}
-      TransitionComponent={transition}
-      PaperProps={{
-        elevation: 8,
-        sx: {
-          borderRadius: 3,
-          minWidth: 320,
-          backgroundColor: '#fff',
-        },
-      }}
-      keepMounted
+      autoHideDuration={autoHideDuration}
     >
-      <DialogContent>
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Box
-            sx={{
-              bgcolor: severityStyles[severity].bg,
-              color: severityStyles[severity].color,
-              borderRadius: '50%',
-              width: 48,
-              height: 48,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            {(() => {
-              const Icon = severityStyles[severity].icon;
-              return <Icon fontSize="medium" />;
-            })()}
-          </Box>
-          <Box>
-            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-              {severity === 'error' ? 'Wallet Authorization Needed' : 'Wallet Notification'}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {msg}
-            </Typography>
-          </Box>
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={() => setOpen(false)} variant="outlined" size="small">
-          Got it
-        </Button>
-      </DialogActions>
-    </Dialog>
+      <Alert
+        severity={severity}
+        sx={{ minWidth: 260, boxShadow: 3 }}
+        action={
+          <IconButton size="small" aria-label="close" color="inherit" onClick={() => setOpen(false)}>
+            <CloseIcon fontSize="small" />
+          </IconButton>
+        }
+      >
+        {msg}
+      </Alert>
+    </Snackbar>
   );
 }

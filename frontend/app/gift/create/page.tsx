@@ -157,7 +157,7 @@ const CreatePack: React.FC = () => {
     return Math.random().toString(36).slice(2, 8).toUpperCase();
   }
 
-  const ensureAuth = async () => {
+  const ensureAuth = async (purpose: 'generate' | 'lock' = 'generate') => {
     if (!provider || !address) {
       try {
         await connect();
@@ -178,8 +178,17 @@ const CreatePack: React.FC = () => {
       await walletLogin(provider);
     } catch (e: any) {
       if (e?.code === 4001 || e?.message?.includes('rejected')) {
-        try { notifyWallet('Transaction canceled', 'error'); } catch {}
-        throw new Error('Signature rejected. Please sign the message to continue.');
+        try {
+          if (purpose === 'generate') {
+            notifyWallet('Signature canceled. We need your signature to generate the secret code.', 'error');
+          } else {
+            notifyWallet('Signature canceled. Please sign to create your gift pack.', 'error');
+          }
+        } catch {}
+        if (purpose === 'generate') {
+          throw new Error('Signature canceled. We need your signature to generate the secret code.');
+        }
+        throw new Error('Signature canceled. Please sign to create your gift pack.');
       }
       throw new Error('Failed to sign message. Please try again.');
     }
@@ -190,7 +199,7 @@ const CreatePack: React.FC = () => {
 
     setBusy(true);
     try {
-      await ensureAuth();
+      await ensureAuth('generate');
 
 
       const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -262,7 +271,7 @@ const CreatePack: React.FC = () => {
     if (!packId || !code) return;
     setError(null);
     try {
-      await ensureAuth();
+      await ensureAuth('lock');
       setLockBusy(true);
 
       // Step 1: Validate the gift pack
@@ -451,7 +460,7 @@ const CreatePack: React.FC = () => {
           
           setToast({ 
             open: true, 
-            msg: `Multi-token gift created! ${giftIds.length} tokens locked successfully.`, 
+            msg: 'Gift pack successfully locked.', 
             severity: 'success' 
           });
           // Build success URL with transaction hash from multi-token gifts
@@ -528,7 +537,7 @@ const CreatePack: React.FC = () => {
         });
         // Add specific messaging for ETH gifts
         if (hasNativeEth) {
-          setToast({ open: true, msg: 'Processing ETH gift via secure backend...', severity: 'info' });
+          setToast({ open: true, msg: 'Processing gift via secure backend...', severity: 'info' });
         }
         
         try {
@@ -537,10 +546,7 @@ const CreatePack: React.FC = () => {
           // Execute the transactions from user's wallet
           await executeBackendTransactions(lockRes.transactions, lockRes.giftCode);
           
-          const successMsg = hasNativeEth 
-            ? 'ETH gift locked successfully!' 
-            : 'Gift locked successfully via backend!';
-          setToast({ open: true, msg: successMsg, severity: 'success' });
+          setToast({ open: true, msg: 'Gift pack successfully locked.', severity: 'success' });
           
           // Build success URL with gift code
           const params = new URLSearchParams({ giftCode: lockRes.giftCode });
@@ -559,6 +565,17 @@ const CreatePack: React.FC = () => {
     } catch (e: any) {
       console.error('Lock gift error:', e);
       
+        // If the user explicitly canceled the signature during the lock flow,
+        // surface the concise wallet toast and also show draft/regenerate guidance in-page.
+        if (e?.message?.includes('Signature canceled')) {
+          try { notifyWallet('Signature canceled. Please sign to create your gift pack.', 'error'); } catch {}
+          const draftGuidance = 'The transaction was canceled. Your gift is still in draft, and the previous secret code is no longer valid. Please generate a new secret code to continue.';
+          setToast({ open: true, msg: draftGuidance, severity: 'error' });
+          setError(draftGuidance);
+          setLockBusy(false);
+          return;
+        }
+
       // Enhanced error messaging
       let errorMessage = e?.message || 'Failed to lock gift on blockchain';
       const lowerError = errorMessage.toLowerCase();
@@ -566,8 +583,8 @@ const CreatePack: React.FC = () => {
       if (lowerError.includes('missing revert data')) {
         errorMessage = 'Smart contract call failed. This usually means: (1) Tokens not approved, (2) Insufficient balance, or (3) Contract issue. Try approving tokens manually in MetaMask first.';
       } else if (lowerError.includes('user denied') || lowerError.includes('user rejected') || lowerError.includes('transaction canceled')) {
-        errorMessage = 'Wallet canceled the transaction. Your gift pack remains in DRAFT status and the previous secret code is no longer valid. Generate a new secret code before trying to lock again.';
-        try { notifyWallet('Transaction canceled', 'error'); } catch {}
+        errorMessage = 'The transaction was canceled. Your gift is still in draft, and the previous secret code is no longer valid. Please generate a new secret code to continue.';
+        try { notifyWallet('Signature canceled. Please sign to create your gift pack.', 'error'); } catch {}
       } else if (lowerError.includes('insufficient')) {
         errorMessage = `${errorMessage} - Make sure you have enough tokens AND enough gas (ETH).`;
       } else if (lowerError.includes('approval')) {
@@ -610,6 +627,8 @@ const CreatePack: React.FC = () => {
     }
     return null;
   };
+
+  const toastAutoHideDuration = (m?: string) => Math.min(15000, Math.max(3000, (m?.length || 0) * 80 + 1000));
 
 
   return (
@@ -1073,7 +1092,7 @@ const CreatePack: React.FC = () => {
         </Stack>
       </Container>
 
-      <Snackbar open={!!toast?.open} autoHideDuration={4000} onClose={() => setToast(null)}>
+      <Snackbar open={!!toast?.open} autoHideDuration={toastAutoHideDuration(toast?.msg)} onClose={() => setToast(null)}>
         <Alert severity={toast?.severity || 'success'} variant="filled">
           {toast?.msg || ''}
         </Alert>

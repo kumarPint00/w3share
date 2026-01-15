@@ -9,6 +9,7 @@ import { WalletProvider } from '@/context/WalletContext';
 import QueryProvider from '@/providers/QueryProvider';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
+import WalletEventsListener from '@/components/WalletEventsListener';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -43,8 +44,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <EscrowProvider>
                 <WalletProvider>
                   <Navbar />
-                      <WalletEventsListener />
-                      {children}
+                  <WalletEventsListener />
+                  {children}
                   <Footer />
                 </WalletProvider>
               </EscrowProvider>
@@ -55,4 +56,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-import WalletEventsListener from '@/components/WalletEventsListener';

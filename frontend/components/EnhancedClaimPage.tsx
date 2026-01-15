@@ -120,6 +120,14 @@ export default function EnhancedClaimPage() {
     error: giftPreviewErrObj
   } = useGiftPreview(enablePreview && mode === 'id' ? giftIdNum : undefined);
 
+  const isAlreadyClaimedPreview = !!(
+    giftPreview?.giftPack?.status === 'CLAIMED' ||
+    giftPreview?.giftPack?.claimed ||
+    giftPreview?.onChainStatus?.claimed ||
+    giftPreview?.onChainStatus?.status === 'CLAIMED' ||
+    giftPreview?.onChainStatus?.claimer
+  );
+
   const {
     data: claimStatus,
     isFetching: claimStatusFetching
@@ -645,14 +653,23 @@ export default function EnhancedClaimPage() {
                   disabled={
                     (mode === 'id' ? !!idError || !giftIdNum : !!codeError || !giftCodeInput.trim()) ||
                     !address ||
-                    submitClaim.isPending
+                    submitClaim.isPending ||
+                    isAlreadyClaimedPreview
                   }
                   startIcon={submitClaim.isPending ? <CircularProgress size={24} color="inherit" /> : null}
                   size="large"
                 >
-                  {submitClaim.isPending ? 'Submitting...' : '🎁 Claim Gift'}
+                  {submitClaim.isPending ? 'Submitting...' : isAlreadyClaimedPreview ? 'Already Claimed' : '🎁 Claim Gift'}
                 </ClaimButton>
               </Box>
+              {isAlreadyClaimedPreview && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  This gift has already been claimed on-chain.
+                  {giftPreview?.onChainStatus?.claimer && (
+                    <div style={{ marginTop: 6 }}>Claimed by <code style={{ fontFamily: 'monospace' }}>{giftPreview.onChainStatus.claimer}</code></div>
+                  )}
+                </Alert>
+              )}
             </>
           ) : (
             <Box textAlign="center" sx={{ py: 6 }}>

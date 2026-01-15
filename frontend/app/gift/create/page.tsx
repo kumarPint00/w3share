@@ -561,15 +561,16 @@ const CreatePack: React.FC = () => {
       
       // Enhanced error messaging
       let errorMessage = e?.message || 'Failed to lock gift on blockchain';
+      const lowerError = errorMessage.toLowerCase();
       
-      if (errorMessage.includes('missing revert data')) {
+      if (lowerError.includes('missing revert data')) {
         errorMessage = 'Smart contract call failed. This usually means: (1) Tokens not approved, (2) Insufficient balance, or (3) Contract issue. Try approving tokens manually in MetaMask first.';
-      } else if (errorMessage.includes('User denied')) {
-        errorMessage = 'You rejected the transaction. Please try again and approve the transaction in your wallet.';
+      } else if (lowerError.includes('user denied') || lowerError.includes('user rejected') || lowerError.includes('transaction canceled')) {
+        errorMessage = 'Wallet canceled the transaction. Your gift pack remains in DRAFT status and the previous secret code is no longer valid. Generate a new secret code before trying to lock again.';
         try { notifyWallet('Transaction canceled', 'error'); } catch {}
-      } else if (errorMessage.includes('Insufficient')) {
+      } else if (lowerError.includes('insufficient')) {
         errorMessage = `${errorMessage} - Make sure you have enough tokens AND enough gas (ETH).`;
-      } else if (errorMessage.includes('Approval')) {
+      } else if (lowerError.includes('approval')) {
         errorMessage = `Approval failed: ${errorMessage} - Try approving with a higher gas limit in MetaMask.`;
       }
       

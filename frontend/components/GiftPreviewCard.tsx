@@ -73,7 +73,6 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
   const isERC20 = item.type === 'ERC20';
   const isNFT = item.type === 'NFT';
 
-  console.log('[GiftItemDisplay] Rendering item:', item);
   
   return (
     <Zoom in={true} style={{ transitionDelay: `${index * 100}ms` }}>
@@ -94,11 +93,15 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
         <Stack direction="row" alignItems="center" spacing={2}>
           <Avatar
             sx={{
-              bgcolor: isNFT ? '#ff9800' : '#4caf50',
+              bgcolor: item.image ? 'transparent' : (isNFT ? '#ff9800' : '#4caf50'),
               width: 40,
               height: 40,
+              border: item.image ? '1px solid rgba(0, 0, 0, 0.08)' : 'none',
+              overflow: 'hidden',
             }}
             src={item.image || undefined}
+            alt={item.symbol || item.name || 'Gift token'}
+            imgProps={{ loading: 'lazy' }}
           >
             {!item.image && (isNFT ? <TokenIcon /> : <MoneyIcon />)}
           </Avatar>
@@ -162,6 +165,7 @@ export default function GiftPreviewCard({
   const expiryDate = giftPack.expiry ? new Date(giftPack.expiry) : (giftPack.sealedAt ? new Date(giftPack.sealedAt) : undefined);
   const isNearExpiry = expiryDate && !isExpired && !isClaimed &&
     (Date.now() - expiryDate.getTime()) < (24 * 60 * 60 * 1000); // Created within last 24 hours
+  const displayOnChainId = typeof giftPack.giftIdOnChain === 'number' && giftPack.giftIdOnChain > 0 ? giftPack.giftIdOnChain : null;
 
   return (
     <Fade in={showAnimation} timeout={600}>
@@ -252,10 +256,10 @@ export default function GiftPreviewCard({
                   <Typography variant="body2" fontWeight={600}>{giftPack.giftCode}</Typography>
                 </Grid>
               )}
-              {giftPack.giftIdOnChain !== undefined && (
+              {displayOnChainId !== null && (
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">Onchain ID</Typography>
-                  <Typography variant="body2" fontWeight={600}>#{giftPack.giftIdOnChain}</Typography>
+                  <Typography variant="body2" fontWeight={600}>#{displayOnChainId}</Typography>
                 </Grid>
               )}
              
@@ -291,15 +295,16 @@ export default function GiftPreviewCard({
               <Box display="flex" alignItems="center" mb={1}>
                 <SenderIcon sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} />
                 <Typography variant="body2" fontWeight={500}>
-                  From
+                  From : {giftPack.senderAddress ? `${giftPack.senderAddress.slice(0,6)}...${giftPack.senderAddress.slice(-4)}` : (onChainStatus?.sender ? `${onChainStatus.sender.slice(0,6)}...${onChainStatus.sender.slice(-4)}` : 'Unknown')}
+
                 </Typography>
               </Box>
-              <Typography variant="body2" color="text.secondary">
+              {/* <Typography variant="body2" color="text.secondary">
                 {giftPack.senderAddress ? `${giftPack.senderAddress.slice(0,6)}...${giftPack.senderAddress.slice(-4)}` : (onChainStatus?.sender ? `${onChainStatus.sender.slice(0,6)}...${onChainStatus.sender.slice(-4)}` : 'Unknown')}
-              </Typography>
+              </Typography> */}
             </Grid>
 
-            <Grid item xs={6}>
+            {/* <Grid item xs={6}>
               <Box display="flex" alignItems="center" mb={1}>
                 <TimeIcon sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} />
                 <Typography variant="body2" fontWeight={500}>
@@ -309,7 +314,7 @@ export default function GiftPreviewCard({
               <Typography variant="body2" color={isExpired ? 'error.main' : isNearExpiry ? 'warning.main' : 'text.secondary'}>
                 {expiryDate ? expiryDate.toLocaleString() : 'Unknown'} 
               </Typography>
-            </Grid>
+            </Grid> */}
           </Grid>
 
           {/* Onchain Info

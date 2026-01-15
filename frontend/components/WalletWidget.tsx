@@ -19,6 +19,7 @@ export default function WalletWidget() {
   const [authing, setAuthing] = useState(false);
   const [authErr, setAuthErr] = useState<string | null>(null);
   const [hasToken, setHasToken] = useState<boolean>(false);
+  const [loginRejected, setLoginRejected] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -42,7 +43,7 @@ export default function WalletWidget() {
   }, [provider, address]);
 
   useEffect(() => {
-    const shouldLogin = connected && provider && !hasToken && !authing && !authErr;
+    const shouldLogin = connected && provider && !hasToken && !authing && !authErr && !loginRejected;
     if (!shouldLogin) return;
 
     (async () => {
@@ -51,12 +52,16 @@ export default function WalletWidget() {
         setAuthing(true);
         await walletLogin(provider!);
         setHasToken(true);
+        setLoginRejected(false);
       } catch (e: any) {
-        if (e?.code === 4001 || e?.message?.includes('rejected')) {
+        const rejected = e?.code === 4001 || e?.message?.toLowerCase?.().includes('rejected');
+        if (rejected) {
           console.log('[WalletWidget] User rejected signing');
-          try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Transaction canceled', type: 'error' } })); } catch {}
-          // Do not set a persistent auth error; leave user disconnected
-          setAuthErr(null);
+          try {
+            window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Sign-in request rejected', type: 'warning' } }));
+          } catch {}
+          setLoginRejected(true);
+          // setAuthErr('Sign-in request was rejected. Click “Sign in” to try again.');
         } else {
           setAuthErr(e?.message || 'Failed to sign in');
         }
@@ -144,14 +149,17 @@ export default function WalletWidget() {
   const handleManualSignIn = async () => {
     if (!provider) return;
     try {
+      setLoginRejected(false);
       setAuthErr(null);
       setAuthing(true);
       await walletLogin(provider);
       setHasToken(true);
     } catch (e: any) {
-      if (e?.code === 4001 || e?.message?.includes('rejected')) {
-        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Transaction canceled', type: 'error' } })); } catch {}
-        setAuthErr(null);
+      const rejected = e?.code === 4001 || e?.message?.toLowerCase?.().includes('rejected');
+      if (rejected) {
+        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Sign-in request rejected', type: 'warning' } })); } catch {}
+        setLoginRejected(true);
+        // setAuthErr('Sign-in request was rejected. Click “Sign in” to try again.');
       } else {
         setAuthErr(e?.message || 'Failed to sign in');
       }

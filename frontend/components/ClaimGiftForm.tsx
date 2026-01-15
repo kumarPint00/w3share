@@ -10,7 +10,12 @@ import {
   CircularProgress,
   InputAdornment,
   Typography,
+  IconButton,
+  Collapse,
+  Paper,
+  Tooltip,
 } from '@mui/material';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
 import BackgroundRemoverImage from '@/components/BackgroundRemoverImage';
@@ -55,6 +60,8 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
   const [txHashes, setTxHashes] = useState<string[]>([]);
   const [claimProgress, setClaimProgress] = useState<{ current: number; total: number; name?: string; status?: 'in-progress'|'done'|'failed' } | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
+  const [txRawError, setTxRawError] = useState<any | null>(null);
+  const [showErrorDetails, setShowErrorDetails] = useState(false);
   const [success, setSuccess] = useState(false);
   const [previewGift, setPreviewGift] = useState<any | null>(null);
   const [onChainStatus, setOnChainStatus] = useState<any | null>(null);
@@ -175,13 +182,22 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
   }, [validateCode]);
 
   const handleSubmitClaim = useCallback(async () => {
+    let executedTxHashes: string[] = [];
     setTxError(null);
     setSuccess(false);
     setTxHash(null);
+    setTxHashes([]);
+    setClaimProgress(null);
     if (!walletAddress) return;
-    const err = validateCode(giftCodeInput);
-    setCodeError(err);
-    if (err) return;
+    const validationError = validateCode(giftCodeInput);
+    setCodeError(validationError);
+    if (validationError) return;
+    // Prevent attempting to claim if preview indicates it's already claimed
+    const isAlreadyClaimedNow = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
+    if (isAlreadyClaimedNow) {
+      setTxError('This gift has already been claimed. See details above.');
+      return;
+    }
     setIsPending(true);
     try {
 
@@ -226,7 +242,11 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
             throw err;
           } finally {
             setClaimProgress(null);
-            setTxHashes(_txHashes);
+            if (_txHashes.length > 0) {
+              const recorded = [..._txHashes];
+              setTxHashes(recorded);
+              executedTxHashes = recorded;
+            }
           }
         } else {
           setClaimProgress({ current: 0, total: txs.length, name: undefined, status: 'in-progress' });
@@ -257,7 +277,9 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
               throw err;
             }
           }
-          setTxHashes(_txHashes);
+          const recordedTxHashes = [..._txHashes];
+          setTxHashes(recordedTxHashes);
+          executedTxHashes = recordedTxHashes;
           // Mark success only if all txs succeeded
           if (_txHashes.length === anyClaim.claimTransactions.length) {
             setSuccess(true);
@@ -270,7 +292,9 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
           data: anyClaim.data,
         });
         setTxHash(tx.hash);
-        setTxHashes([tx.hash]);
+        const recordedTxHashes = [tx.hash];
+        setTxHashes(recordedTxHashes);
+        executedTxHashes = recordedTxHashes;
         await tx.wait();
         setSuccess(true);
       }
@@ -278,20 +302,38 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
       if (onClaimSuccess) {
         try {
           const giftDetails = await getGiftPackDetails({ giftCode: code });
-          // provide txHashes if available
           onClaimSuccess({
             message: giftDetails?.message,
             items: giftDetails?.items || [],
-            txHashes: txHashes,
+            txHashes: executedTxHashes,
           });
         } catch (e) {
           onClaimSuccess({});
         }
       }
     } catch (error: any) {
-      setTxError(error?.message || 'Failed to submit claim.');
+      // Save raw error for developer diagnostics
+      setTxRawError(error);
+
+      const rawMsg = (error?.message || error?.reason || (typeof error === 'string' ? error : '') || '').toString();
+      const lowerMsg = rawMsg.toLowerCase();
+
+      // Map common on-chain errors to friendly messages
+      if (lowerMsg.includes('user denied') || lowerMsg.includes('user rejected') || lowerMsg.includes('transaction canceled')) {
+        setTxError('Transaction rejected. Gift remains claimable — please approve the wallet prompt to try again.');
+      } else if (lowerMsg.includes('gift pack not found') || lowerMsg.includes('no gift') || lowerMsg.includes('gift not found')) {
+        setTxError('On-chain error: gift not found. This usually means the gift was already CLAIMED, never locked on-chain or the on-chain ID is invalid. Confirm the gift code or ask the sender to retry locking it.');
+        
+      } else if (lowerMsg.includes('insufficient') && lowerMsg.includes('funds')) {
+        setTxError('Insufficient funds to complete the transaction. Make sure you have enough ETH for gas and try again.');
+      } else if (lowerMsg.includes('call_exception') || lowerMsg.includes('execution reverted') || lowerMsg.includes('revert')) {
+        setTxError('On-chain call failed. The contract rejected the operation — check that the gift is properly locked on-chain and try again.');
+      } else {
+        setTxError(error?.message || 'Failed to submit claim.');
+      }
     } finally {
       setIsPending(false);
+      setClaimProgress(null);
     }
   }, [walletAddress, giftCodeInput, validateCode, onClaimSuccess]);
 
@@ -300,7 +342,12 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
     setCodeError(null);
     setTxError(null);
     setTxHash(null);
+    setTxHashes([]);
     setSuccess(false);
+    setClaimProgress(null);
+    setPreviewGift(null);
+    setOnChainStatus(null);
+    setIsPending(false);
   }, []);
 
 
@@ -394,6 +441,46 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                 <GiftPreviewCard giftPack={previewGift} onChainStatus={onChainStatus} showAnimation={true} />
               </Box>
             )}
+            {previewGift && !previewLoading && (() => {
+              const isAlreadyClaimed = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
+              if (!isAlreadyClaimed) return null;
+
+              const claimer = onChainStatus?.claimer || undefined;
+              const giftId = onChainStatus?.giftId || previewGift?.giftIdOnChain;
+              const claimPageUrl = giftId ? `${typeof window !== 'undefined' ? window.location.origin : ''}/gift/claim?giftId=${giftId}` : null;
+
+              return (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <strong>This gift has already been claimed</strong>
+                      {claimer && <div style={{ marginTop: 6 }}>Claimed by <code style={{ fontFamily: 'monospace' }}>{claimer}</code></div>}
+                      {!claimer && <div style={{ marginTop: 6 }}>The gift was already claimed on-chain.</div>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {claimPageUrl && (
+                        <Button size="small" variant="outlined" href={claimPageUrl} target="_blank" rel="noopener noreferrer" sx={{ textTransform: 'none' }}>
+                          View on-chain
+                        </Button>
+                      )}
+                      <Button
+                        size="small"
+                        variant="contained"
+                        onClick={() => {
+                          setGiftCodeInput('');
+                          setPreviewGift(null);
+                          setOnChainStatus(null);
+                          setCodeError(null);
+                        }}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        Clear
+                      </Button>
+                    </div>
+                  </div>
+                </Alert>
+              );
+            })()}
 
             {!walletAddress && (
               <Box
@@ -481,66 +568,66 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
 
             {(() => {
               const isAlreadyClaimed = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
-              const isInvalidGift = !previewLoading && giftCodeInput.trim() && !previewGift && !isAlreadyClaimed && !isPending && !success && !codeError ? true : codeError === 'Invalid gift code';
-              const buttonDisabled = !!codeError || !giftCodeInput.trim() || !walletAddress || isPending || success || isAlreadyClaimed || isInvalidGift;
-              const label = success
-                ? 'Gift Claimed'
-                : isAlreadyClaimed
-                  ? 'Already Claimed'
-                  : isInvalidGift
-                    ? 'Invalid Code'
-                    : (isPending ? 'Submitting...' : 'Claim Gift');
+              const isInvalidGift = !previewLoading && giftCodeInput.trim() && !previewGift && !isAlreadyClaimed && !isPending && !codeError ? true : codeError === 'Invalid gift code';
+              const buttonDisabled = !!codeError || !giftCodeInput.trim() || !walletAddress || isPending || isAlreadyClaimed || isInvalidGift;
+              const label = isAlreadyClaimed
+                ? 'Gift Already Claimed'
+                : isInvalidGift
+                  ? 'Invalid Code'
+                  : (isPending ? 'Submitting...' : 'Claim Gift');
               return (
-                <Button
-                  variant="contained"
-                  size="large"
-                  onClick={handleSubmitClaim}
-                  disabled={buttonDisabled}
-                  startIcon={
-                    isPending ? (
-                      <CircularProgress size={20} color="inherit" />
-                    ) : (
-                      <Box sx={{ width: 48 }}>
-                        <BackgroundRemoverImage
-                          src={buttonDisabled ? "/gift_icon_transparent.png" : "/gift_icon.png"}
-                          alt="Gift"
-                          width={25}
-                          height={25}
-                          threshold={255}
-                          channelDiff={80}
-                          crop
-                          cropPadding={1}
-                          removeLightNeutral
-                          lightnessCutoff={0.88}
-                          saturationCutoff={0.22}
-                          showSkeleton={false}
-                        />
-                      </Box>
-                    )
-                  }
-                  fullWidth
-                  sx={{
-                    py: 2,
-                    px: 4,
-                    borderRadius: 3,
-                    fontSize: '1.05rem',
-                    fontWeight: 600,
-                    textTransform: 'none',
-                    bgcolor: '#0B7EFF',
-                    color: '#fff',
-                    boxShadow: 'none',
-                    '&:hover': {
-                      bgcolor: '#0068ff',
-                      boxShadow: '0 4px 12px rgba(11, 126, 255, 0.3)',
-                    },
-                    '&:disabled': {
-                      bgcolor: '#e5e7eb',
-                      color: '#9ca3af',
-                    },
-                  }}
-                >
-                  {label}
-                </Button>
+                !success && (
+                  <Button
+                    variant="contained"
+                    size="large"
+                    onClick={handleSubmitClaim}
+                    disabled={buttonDisabled}
+                    startIcon={
+                      isPending ? (
+                        <CircularProgress size={20} color="inherit" />
+                      ) : (
+                        <Box sx={{ width: 48 }}>
+                          <BackgroundRemoverImage
+                            src={buttonDisabled ? "/gift_icon_transparent.png" : "/gift_icon.png"}
+                            alt="Gift"
+                            width={25}
+                            height={25}
+                            threshold={255}
+                            channelDiff={80}
+                            crop
+                            cropPadding={1}
+                            removeLightNeutral
+                            lightnessCutoff={0.88}
+                            saturationCutoff={0.22}
+                            showSkeleton={false}
+                          />
+                        </Box>
+                      )
+                    }
+                    fullWidth
+                    sx={{
+                      py: 2,
+                      px: 4,
+                      borderRadius: 3,
+                      fontSize: '1.05rem',
+                      fontWeight: 600,
+                      textTransform: 'none',
+                      bgcolor: '#0B7EFF',
+                      color: '#fff',
+                      boxShadow: 'none',
+                      '&:hover': {
+                        bgcolor: '#0068ff',
+                        boxShadow: '0 4px 12px rgba(11, 126, 255, 0.3)',
+                      },
+                      '&:disabled': {
+                        bgcolor: '#e5e7eb',
+                        color: '#9ca3af',
+                      },
+                    }}
+                  >
+                    {label}
+                  </Button>
+                )
               );
             })()}
 
@@ -600,7 +687,57 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
               </Alert>
             )}
             {txError && (
-              <Alert severity="error" sx={{ mt: 2 }}>{txError}</Alert>
+              <Box sx={{ mt: 2 }}>
+                <Alert
+                  severity="error"
+                  action={(
+                    <>
+                      {/* <Button
+                        size="small"
+                        onClick={() => setShowErrorDetails((s) => !s)}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        {showErrorDetails ? 'Hide details' : 'Show details'}
+                      </Button> */}
+                      <Button
+                        size="small"
+                        onClick={() => {
+                          setTxError(null);
+                          setTxRawError(null);
+                          setShowErrorDetails(false);
+                        }}
+                        sx={{ textTransform: 'none' }}
+                      >
+                        Dismiss
+                      </Button>
+                    </>
+                  )}
+                >
+                  <strong>{txError}</strong>
+                </Alert>
+
+                <Collapse in={showErrorDetails} sx={{ mt: 1 }}>
+                  <Paper variant="outlined" sx={{ p: 1, backgroundColor: '#fff6f6' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+                      <Tooltip title="Copy details">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            try {
+                              navigator.clipboard.writeText(JSON.stringify(txRawError || txError, null, 2));
+                            } catch {}
+                          }}
+                        >
+                          <ContentCopyIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                    <pre style={{ maxHeight: 300, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }}>
+                      {typeof txRawError === 'string' ? txRawError : JSON.stringify(txRawError || txError, null, 2)}
+                    </pre>
+                  </Paper>
+                </Collapse>
+              </Box>
             )}
             {claimProgress && (
               <Alert severity="info" sx={{ mt: 2 }}>

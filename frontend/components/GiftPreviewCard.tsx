@@ -157,11 +157,10 @@ export default function GiftPreviewCard({
   onChainStatus,
   showAnimation = true,
 }: GiftPreviewCardProps) {
-  const status = onChainStatus?.status || 'LOCKED';
+  const status = giftPack?.status || 'LOCKED';
   const statusInfo = getStatusColor(status);
   const isExpired = status === 'EXPIRED';
   const isClaimed = status === 'CLAIMED';
-
   const expiryDate = giftPack.expiry ? new Date(giftPack.expiry) : (giftPack.sealedAt ? new Date(giftPack.sealedAt) : undefined);
   const isNearExpiry = expiryDate && !isExpired && !isClaimed &&
     (Date.now() - expiryDate.getTime()) < (24 * 60 * 60 * 1000); // Created within last 24 hours

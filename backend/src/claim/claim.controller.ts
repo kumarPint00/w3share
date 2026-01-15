@@ -69,4 +69,21 @@ export class ClaimController {
     }
     return this.claimService.getStatusByCode(giftRef);
   }
+
+  @Post('confirm')
+  @ApiOperation({ summary: 'Confirm a client-executed claim (mark gift as CLAIMED)' })
+  async confirm(@Body() dto: { giftCode?: string; giftId?: number; txHash?: string; claimer?: string }) {
+    if (!dto) throw new BadRequestException('Body required');
+    if (!dto.txHash || typeof dto.txHash !== 'string') throw new BadRequestException('txHash is required');
+
+    if (dto.giftCode && typeof dto.giftCode === 'string') {
+      return this.claimService.confirmClaimByCode(dto.giftCode.trim(), dto.txHash, dto.claimer);
+    }
+
+    if (dto.giftId && typeof dto.giftId === 'number') {
+      return this.claimService.confirmClaimById(dto.giftId, dto.txHash, dto.claimer);
+    }
+
+    throw new BadRequestException('giftCode or giftId required');
+  }
 }

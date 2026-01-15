@@ -239,6 +239,67 @@ export class ClaimService {
     };
   }
 
+  /**
+   * Confirm a claim that was executed by the client (wallet-signed tx).
+   * This marks the GiftPack as CLAIMED and records a ClaimTask with the txHash.
+   */
+  async confirmClaimByCode(giftCode: string, txHash: string, claimer?: string) {
+    const code = (giftCode || '').trim();
+    if (!code) throw new BadRequestException({ message: 'giftCode is required' });
+    if (!txHash || typeof txHash !== 'string') throw new BadRequestException({ message: 'txHash is required' });
+
+    const pack = await this.prisma.giftPack.findFirst({ where: { giftCode: code } });
+    if (!pack) throw new NotFoundException({ message: 'Gift not found' });
+    if (pack.status !== 'LOCKED') {
+      throw new BadRequestException({ message: 'Gift not in LOCKED state' });
+    }
+
+    // Create a ClaimTask record and mark gift pack as CLAIMED
+    await this.prisma.$transaction(async (tx) => {
+      await tx.claimTask.create({
+        data: {
+          giftPackId: pack.id,
+          taskId: txHash,
+          status: 'CLAIMED',
+        },
+      });
+
+      await tx.giftPack.update({
+        where: { id: pack.id },
+        data: { status: 'CLAIMED' },
+      });
+    });
+
+    return { ok: true };
+  }
+
+  async confirmClaimById(giftId: number, txHash: string, claimer?: string) {
+    if (!txHash || typeof txHash !== 'string') throw new BadRequestException({ message: 'txHash is required' });
+
+    const pack = await this.prisma.giftPack.findUnique({ where: { giftIdOnChain: giftId } });
+    if (!pack) throw new NotFoundException({ message: 'Gift not found' });
+    if (pack.status !== 'LOCKED') {
+      throw new BadRequestException({ message: 'Gift not in LOCKED state' });
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.claimTask.create({
+        data: {
+          giftPackId: pack.id,
+          taskId: txHash,
+          status: 'CLAIMED',
+        },
+      });
+
+      await tx.giftPack.update({
+        where: { id: pack.id },
+        data: { status: 'CLAIMED' },
+      });
+    });
+
+    return { ok: true };
+  }
+
   async getStatusById(giftId: number): Promise<{ status: string; taskId: string | null }> {
     const record = await this.prisma.claimTask.findFirst({
       where: { giftPack: { giftIdOnChain: giftId } },

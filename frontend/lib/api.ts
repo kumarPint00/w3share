@@ -382,6 +382,13 @@ class ApiService {
     return this.request(`/claim/status/${giftRef}`);
   }
 
+  async confirmClaimComplete(payload: { giftCode?: string; giftId?: number; txHash: string; claimer?: string }) {
+    return this.request('/claim/confirm', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
   async lockGiftPack(id: string): Promise<LockGiftResponse> {
     return this.request(`/giftpacks/${id}/lock`, {
       method: 'POST',

@@ -153,7 +153,8 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
           setPreviewGift(null);
           setOnChainStatus(null);
           if (giftCodeInput.trim()) {
-            setCodeError(prev => prev || 'Invalid gift code');
+            // Show a succinct, red helper text when the code is invalid
+            setCodeError(prev => prev || 'Invalid Code');
           }
         }
       } finally {
@@ -236,6 +237,12 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
             await tx.wait();
             setClaimProgress({ current: 1, total: 1, name: 'Batch claim', status: 'done' });
             setSuccess(true);
+              // Notify backend that claim was completed
+              try {
+                await apiService.confirmClaimComplete({ giftCode: code, txHash: tx.hash, claimer: walletAddress });
+              } catch (err) {
+                console.warn('Failed to notify backend about claim completion:', err);
+              }
           } catch (err: any) {
             setClaimProgress({ current: 1, total: 1, name: 'Batch claim', status: 'failed' });
             setTxError(err?.message || 'Batch claim failed');
@@ -267,7 +274,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
               setTxHash(tx.hash);
               setTxError(null);
               // wait for confirmation before proceeding to next
-              await tx.wait();
+                await tx.wait();
               // update progress
               setClaimProgress({ current: i + 1, total: txs.length, name: friendlyName, status: 'done' });
             } catch (err: any) {
@@ -283,6 +290,14 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
           // Mark success only if all txs succeeded
           if (_txHashes.length === anyClaim.claimTransactions.length) {
             setSuccess(true);
+              // Notify backend about the successful claim (use first tx hash as reference)
+              try {
+                if (recordedTxHashes.length > 0) {
+                  await apiService.confirmClaimComplete({ giftCode: code, txHash: recordedTxHashes[0], claimer: walletAddress });
+                }
+              } catch (err) {
+                console.warn('Failed to notify backend about claim completion:', err);
+              }
           }
           setClaimProgress(null);
         }
@@ -297,6 +312,11 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
         executedTxHashes = recordedTxHashes;
         await tx.wait();
         setSuccess(true);
+        try {
+          await apiService.confirmClaimComplete({ giftCode: code, txHash: tx.hash, claimer: walletAddress });
+        } catch (err) {
+          console.warn('Failed to notify backend about claim completion:', err);
+        }
       }
 
       if (onClaimSuccess) {
@@ -305,7 +325,6 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
           onClaimSuccess({
             message: giftDetails?.message,
             items: giftDetails?.items || [],
-            txHashes: executedTxHashes,
           });
         } catch (e) {
           onClaimSuccess({});
@@ -567,66 +586,80 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
             )}
 
             {(() => {
-              const isAlreadyClaimed = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
-              const isInvalidGift = !previewLoading && giftCodeInput.trim() && !previewGift && !isAlreadyClaimed && !isPending && !codeError ? true : codeError === 'Invalid gift code';
+              // const isAlreadyClaimed = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
+              const isAlreadyClaimed = previewGift?.status === 'CLAIMED' 
+              console.log('Determining button state:', { isAlreadyClaimed, previewGift, onChainStatus });
+              const isInvalidGift = !previewLoading && giftCodeInput.trim() && !previewGift && !isAlreadyClaimed && !isPending && !codeError ? true : codeError === 'Invalid Code';
               const buttonDisabled = !!codeError || !giftCodeInput.trim() || !walletAddress || isPending || isAlreadyClaimed || isInvalidGift;
               const label = isAlreadyClaimed
                 ? 'Gift Already Claimed'
                 : isInvalidGift
                   ? 'Invalid Code'
                   : (isPending ? 'Submitting...' : 'Claim Gift');
+
+              const buttonElement = (
+                <Button
+                  variant="contained"
+                  size="large"
+                  onClick={handleSubmitClaim}
+                  disabled={buttonDisabled}
+                  startIcon={
+                    isPending ? (
+                      <CircularProgress size={20} color="inherit" />
+                    ) : (
+                      <Box sx={{ width: 48 }}>
+                        <BackgroundRemoverImage
+                          src={buttonDisabled ? "/gift_icon_transparent.png" : "/gift_icon.png"}
+                          alt="Gift"
+                          width={25}
+                          height={25}
+                          threshold={255}
+                          channelDiff={80}
+                          crop
+                          cropPadding={1}
+                          removeLightNeutral
+                          lightnessCutoff={0.88}
+                          saturationCutoff={0.22}
+                          showSkeleton={false}
+                        />
+                      </Box>
+                    )
+                  }
+                  fullWidth
+                  sx={{
+                    py: 2,
+                    px: 4,
+                    borderRadius: 3,
+                    fontSize: '1.05rem',
+                    fontWeight: 600,
+                    textTransform: 'none',
+                    bgcolor: '#0B7EFF',
+                    color: '#fff',
+                    boxShadow: 'none',
+                    '&:hover': {
+                      bgcolor: '#0068ff',
+                      boxShadow: '0 4px 12px rgba(11, 126, 255, 0.3)',
+                    },
+                    '&:disabled': {
+                      bgcolor: '#e5e7eb',
+                      color: '#9ca3af',
+                    },
+                  }}
+                >
+                  {label}
+                </Button>
+              );
+
+              // If the gift is already claimed, show the disabled button but still provide a tooltip explaining why
               return (
                 !success && (
-                  <Button
-                    variant="contained"
-                    size="large"
-                    onClick={handleSubmitClaim}
-                    disabled={buttonDisabled}
-                    startIcon={
-                      isPending ? (
-                        <CircularProgress size={20} color="inherit" />
-                      ) : (
-                        <Box sx={{ width: 48 }}>
-                          <BackgroundRemoverImage
-                            src={buttonDisabled ? "/gift_icon_transparent.png" : "/gift_icon.png"}
-                            alt="Gift"
-                            width={25}
-                            height={25}
-                            threshold={255}
-                            channelDiff={80}
-                            crop
-                            cropPadding={1}
-                            removeLightNeutral
-                            lightnessCutoff={0.88}
-                            saturationCutoff={0.22}
-                            showSkeleton={false}
-                          />
-                        </Box>
-                      )
-                    }
-                    fullWidth
-                    sx={{
-                      py: 2,
-                      px: 4,
-                      borderRadius: 3,
-                      fontSize: '1.05rem',
-                      fontWeight: 600,
-                      textTransform: 'none',
-                      bgcolor: '#0B7EFF',
-                      color: '#fff',
-                      boxShadow: 'none',
-                      '&:hover': {
-                        bgcolor: '#0068ff',
-                        boxShadow: '0 4px 12px rgba(11, 126, 255, 0.3)',
-                      },
-                      '&:disabled': {
-                        bgcolor: '#e5e7eb',
-                        color: '#9ca3af',
-                      },
-                    }}
-                  >
-                    {label}
-                  </Button>
+                  isAlreadyClaimed ? (
+                    <Tooltip title="This gift has already been claimed and cannot be redeemed.">
+                      <span style={{ display: 'block' }}>{buttonElement}</span>
+                    </Tooltip>
+                  ) : (
+                    buttonElement
+                  )
                 )
               );
             })()}

@@ -128,6 +128,8 @@ export default function EnhancedClaimPage() {
     giftPreview?.onChainStatus?.claimer
   );
 
+  console.log('Gift Preview:', giftPreview);
+
   const {
     data: claimStatus,
     isFetching: claimStatusFetching
@@ -659,7 +661,7 @@ export default function EnhancedClaimPage() {
                   startIcon={submitClaim.isPending ? <CircularProgress size={24} color="inherit" /> : null}
                   size="large"
                 >
-                  {submitClaim.isPending ? 'Submitting...' : isAlreadyClaimedPreview ? 'Already Claimed' : '🎁 Claim Gift'}
+                  {submitClaim.isPending ? 'Submitting...' : isAlreadyClaimedPreview ? 'Gift Already Claimed' : '🎁 Claim Gift'}
                 </ClaimButton>
               </Box>
               {isAlreadyClaimedPreview && (

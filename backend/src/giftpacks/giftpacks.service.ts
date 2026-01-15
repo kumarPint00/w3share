@@ -221,7 +221,7 @@ export class GiftpacksService {
     const pack = await this.getDraft(id);
     const errors: string[] = [];
 
-    if (pack.status !== 'DRAFT') errors.push('Gift pack must be in DRAFT status');
+    if (pack.status !== 'DRAFT') errors.push('Gift pack must be in DRAFT status, Please regenerate the gift code.');
     if (!pack.items || pack.items.length === 0) errors.push('Gift pack must contain at least one item');
     if (new Date(pack.expiry) <= new Date()) errors.push('Gift pack expiry must be in the future');
 

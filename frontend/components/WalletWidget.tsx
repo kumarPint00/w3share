@@ -56,9 +56,9 @@ export default function WalletWidget() {
       } catch (e: any) {
         const rejected = e?.code === 4001 || e?.message?.toLowerCase?.().includes('rejected');
         if (rejected) {
-          console.log('[WalletWidget] User rejected signing');
+          console.log('[WalletWidget] User canceled signing');
           try {
-            window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Sign-in request rejected', type: 'warning' } }));
+            window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Sign-in request canceled', type: 'warning' } }));
           } catch {}
           setLoginRejected(true);
           // setAuthErr('Sign-in request was rejected. Click “Sign in” to try again.');
@@ -81,7 +81,7 @@ export default function WalletWidget() {
       return (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
           <Typography sx={{ fontSize: 12, color: 'error.main', fontWeight: 500 }}>
-            ✗ Connection rejected
+            ✗ Connection canceled
           </Typography>
           <Button
             variant="outlined"
@@ -112,16 +112,21 @@ export default function WalletWidget() {
           variant="contained"
           size="small"
           onClick={async () => {
-            try {
-              console.log('[WalletWidget] Connect button clicked');
-              setErr(null);
-              await connect();
-              console.log('[WalletWidget] Connect completed successfully');
-            } catch (e: any) {
-              console.error('[WalletWidget] Connect error:', e);
-              const errorMessage = e?.message || 'Failed to connect wallet';
-              setErr(errorMessage);
-            }
+              try {
+                console.log('[WalletWidget] Connect button clicked');
+                setErr(null);
+                await connect();
+                console.log('[WalletWidget] Connect completed successfully');
+              } catch (e: any) {
+                console.error('[WalletWidget] Connect error:', e);
+                const errorMessage = e?.message || 'Failed to connect wallet';
+                // If user canceled the connect flow, show a friendly toast
+                if (typeof errorMessage === 'string' && errorMessage.includes('Wallet connection canceled')) {
+                  try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Wallet connection canceled', type: 'error' } })); } catch {}
+                } else {
+                  setErr(errorMessage);
+                }
+              }
           }}
           sx={{
             bgcolor: 'primary.main',

@@ -339,7 +339,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
 
       // Map common on-chain errors to friendly messages
       if (lowerMsg.includes('user denied') || lowerMsg.includes('user rejected') || lowerMsg.includes('transaction canceled')) {
-        setTxError('Transaction rejected. Gift remains claimable — please approve the wallet prompt to try again.');
+        setTxError('Transaction canceled. Gift remains claimable — please approve the wallet prompt to try again.');
       } else if (lowerMsg.includes('gift pack not found') || lowerMsg.includes('no gift') || lowerMsg.includes('gift not found')) {
         setTxError('On-chain error: gift not found. This usually means the gift was already CLAIMED, never locked on-chain or the on-chain ID is invalid. Confirm the gift code or ask the sender to retry locking it.');
         

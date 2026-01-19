@@ -6,7 +6,7 @@ import CloseIcon from '@mui/icons-material/Close';
 type Severity = 'info' | 'warning' | 'error';
 
 // Minimum display time for toasts (milliseconds)
-const MIN_TOAST_MS = 3000;
+const MIN_TOAST_MS = 4000; // per UX guidance: keep toasts visible ~4-6s
 // Maximum display time cap
 const MAX_TOAST_MS = 15000;
 
@@ -32,8 +32,12 @@ export default function WalletEventsListener() {
       const type: Severity = detail.type === 'error' ? 'error' : detail.type === 'warning' ? 'warning' : 'info';
       const duration = computeDuration(message, detail.duration);
 
+      // If the message indicates a user-canceled action, make it visually distinct
+      const isCancel = /canceled/i.test(message || '');
+      const resolvedSeverity: Severity = isCancel ? 'error' : type;
+
       setMsg(message);
-      setSeverity(type);
+      setSeverity(resolvedSeverity);
       setAutoHideDuration(duration);
       setOpen(true);
     };
@@ -63,7 +67,13 @@ export default function WalletEventsListener() {
     >
       <Alert
         severity={severity}
-        sx={{ minWidth: 260, boxShadow: 3 }}
+        sx={(theme) => ({
+          minWidth: 260,
+          boxShadow: 3,
+          // Make canceled messages visually more prominent (brighter red)
+          backgroundColor: /canceled/i.test(msg) ? (theme.palette.error.main || '#ff4d4f') : undefined,
+          color: /canceled/i.test(msg) ? '#fff' : undefined,
+        })}
         action={
           <IconButton size="small" aria-label="close" color="inherit" onClick={() => setOpen(false)}>
             <CloseIcon fontSize="small" />

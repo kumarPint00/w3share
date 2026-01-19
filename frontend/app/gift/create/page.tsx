@@ -32,16 +32,17 @@ async function executeBackendTransactions(
   transactions: Array<{ to: string; data: string; value: string; description: string }>,
   giftCode: string
 ) {
-  if (!window.ethereum) {
+  const eth = (window as any).ethereum;
+  if (!eth) {
     throw new Error('MetaMask not installed');
   }
 
-  const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+  const accounts = await eth.request({ method: 'eth_accounts' });
   if (!accounts || accounts.length === 0) {
     throw new Error('No wallet connected');
   }
 
-  const web3Provider = new ethers.BrowserProvider(window.ethereum);
+  const web3Provider = new ethers.BrowserProvider(eth);
   const signer = await web3Provider.getSigner();
 
   console.log('[ExecuteTx] Executing transactions for gift pack:', giftCode);
@@ -83,7 +84,7 @@ const CreatePack: React.FC = () => {
   const [busy, setBusy] = useState<boolean>(false);
   const [lockBusy, setLockBusy] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ open: boolean; msg: string; severity: 'success'|'error' } | null>(null);
+  const [toast, setToast] = useState<{ open: boolean; msg: string; severity: 'success'|'error'|'info' } | null>(null);
   const [packId, setPackId] = useState<string | null>(null);
 
   const { provider, address, connect } = useWallet();
@@ -111,11 +112,11 @@ const CreatePack: React.FC = () => {
     const itemUsd = Number(token.amount || 0) * unitUsd;
 
     // Ensure proper contract address mapping
-    const contractAddress = token.contract || token.address;
+    const contractAddress = (token as any).contract || token.address;
     
     console.log('Adding token to gift pack:', {
       symbol: token.symbol,
-      contract: token.contract,
+      contract: (token as any).contract,
       address: token.address,
       resolvedContract: contractAddress,
       amount: token.amount,
@@ -163,12 +164,12 @@ const CreatePack: React.FC = () => {
         await connect();
       } catch (e: any) {
         if (e?.code === 4001 || e?.message?.includes('rejected')) {
-          try { notifyWallet('Wallet connection rejected', 'error'); } catch {}
-          throw new Error('Wallet connection rejected. Please connect your wallet to continue.');
+          // Let the caller surface the single toast; throw a clear, friendly message
+          throw new Error('Wallet connection canceled. Please connect your wallet to continue.');
         }
         throw new Error('Failed to connect wallet. Please try again.');
       }
-      
+
       if (!provider || !address) {
         throw new Error('Failed to connect wallet. Please try again.');
       }
@@ -178,15 +179,9 @@ const CreatePack: React.FC = () => {
       await walletLogin(provider);
     } catch (e: any) {
       if (e?.code === 4001 || e?.message?.includes('rejected')) {
-        try {
-          if (purpose === 'generate') {
-            notifyWallet('Signature canceled. We need your signature to generate the secret code.', 'error');
-          } else {
-            notifyWallet('Signature canceled. Please sign to create your gift pack.', 'error');
-          }
-        } catch {}
+        // Throw a concise, caller-friendly message. Caller will surface exactly one toast.
         if (purpose === 'generate') {
-          throw new Error('Signature canceled. We need your signature to generate the secret code.');
+          throw new Error('Signature canceled. Please sign to generate the secret code.');
         }
         throw new Error('Signature canceled. Please sign to create your gift pack.');
       }
@@ -242,7 +237,7 @@ const CreatePack: React.FC = () => {
 
         const decimals = (it as any).decimals ?? 18;
 
-        const rawAmountStr = it.rawAmount ?? String((it as any).amount || 0);
+        const rawAmountStr = (it as any).rawAmount ?? String((it as any).amount || 0);
 
         const addItem = {
           type: (isNft ? 'ERC721' : 'ERC20') as 'ERC20' | 'ERC721',
@@ -259,9 +254,17 @@ const CreatePack: React.FC = () => {
       setCode(newCode);
       setPackId(draft.id);
       dispatch({ type: 'setCode', code: newCode });
-      setToast({ open: true, msg: 'Gift pack created! Ready to lock.', severity: 'success' });
+      setToast({ open: true, msg: 'Secret code generated. Gift pack sealed.', severity: 'success' });
     } catch (e: any) {
-      setToast({ open: true, msg: e?.message || 'Failed to create gift', severity: 'error' });
+      // If user canceled signature or wallet connection while generating secret code, show a single wallet toast
+      const msg = e?.message || 'Failed to create gift';
+      if (typeof msg === 'string' && msg.includes('Signature canceled')) {
+        try { notifyWallet('Signature canceled. Please sign to generate the secret code.', 'error'); } catch {}
+      } else if (typeof msg === 'string' && msg.includes('Wallet connection canceled')) {
+        try { notifyWallet('Wallet connection canceled', 'error'); } catch {}
+      } else {
+        setToast({ open: true, msg, severity: 'error' });
+      }
     } finally {
       setBusy(false);
     }
@@ -285,10 +288,11 @@ const CreatePack: React.FC = () => {
       // Check if direct contract interaction is available for all ERC20 tokens (excluding native ETH)
       const allERC20 = state.items.every(item => item.type === 'ERC20');
       const hasNativeEth = state.items.some(item => {
-        const isNativeEth = item.contract === 'native' || 
-                           item.contract === '0x0000000000000000000000000000000000000000' ||
-                           (item.address === 'native') ||
-                           (item.symbol === 'ETH' && item.isNative === true);
+        const it: any = item as any;
+        const isNativeEth = it.contract === 'native' || 
+                           it.contract === '0x0000000000000000000000000000000000000000' ||
+                           (it.address === 'native') ||
+                           (it.symbol === 'ETH' && it.isNative === true);
         return isNativeEth;
       });
       
@@ -297,7 +301,7 @@ const CreatePack: React.FC = () => {
       if (false && allERC20 && state.items.length > 0 && isContractAvailable() && !hasNativeEth) {
         try {
         console.log('Multi-token gift pack items:', state.items.map(item => ({
-          contract: item.contract,
+          contract: (item as any).contract,
           amount: item.amount,
           type: typeof item.amount,
           rawAmount: (item as any).rawAmount,
@@ -314,11 +318,12 @@ const CreatePack: React.FC = () => {
         // Calculate total ETH needed (gas + any ETH amounts)
         let totalEthNeeded = ethers.parseEther('0.002'); // Base gas for multiple transactions
         const ethItems = state.items.filter(item => {
-          const isNativeEth = item.contract === 'native' || 
-                             item.contract === '0x0000000000000000000000000000000000000000' ||
-                             (item.address === 'native') ||
-                             (item.symbol === 'ETH' && item.isNative === true);
-          console.log(`Token ${item.symbol} (${item.contract}) - isNativeEth: ${isNativeEth}`);
+          const it: any = item as any;
+          const isNativeEth = it.contract === 'native' || 
+                             it.contract === '0x0000000000000000000000000000000000000000' ||
+                             (it.address === 'native') ||
+                             (it.symbol === 'ETH' && it.isNative === true);
+          console.log(`Token ${it.symbol} (${it.contract}) - isNativeEth: ${isNativeEth}`);
           return isNativeEth;
         });
         
@@ -338,14 +343,15 @@ const CreatePack: React.FC = () => {
         // Process each token individually
         for (let i = 0; i < state.items.length; i++) {
           const item = state.items[i];
-          setToast({ open: true, msg: `Processing ${item.symbol} (${i+1}/${state.items.length})...`, severity: 'info' });
+          const it: any = item as any;
+          setToast({ open: true, msg: `Processing ${it.symbol} (${i+1}/${state.items.length})...`, severity: 'info' });
           
-          const isNativeEth = item.contract === 'native' || 
-                             item.contract === '0x0000000000000000000000000000000000000000' ||
-                             (item.address === 'native') ||
-                             (item.symbol === 'ETH' && item.isNative === true);
+          const isNativeEth = it.contract === 'native' || 
+                             it.contract === '0x0000000000000000000000000000000000000000' ||
+                             (it.address === 'native') ||
+                             (it.symbol === 'ETH' && it.isNative === true);
           
-          console.log(`Processing ${item.symbol} - contract: ${item.contract}, isNativeEth: ${isNativeEth}`);
+          console.log(`Processing ${it.symbol} - contract: ${it.contract}, isNativeEth: ${isNativeEth}`);
         
           if (isNativeEth) {
             // Handle native ETH gifting
@@ -367,18 +373,18 @@ const CreatePack: React.FC = () => {
               true // isEth flag
             );
             
-            if (lockResult?.success && lockResult.giftId) {
-              giftIds.push(lockResult.giftId);
+            if (lockResult?.success && lockResult.giftId != null) {
+              giftIds.push(lockResult.giftId as number);
               totalEthUsed += ethers.parseEther(amountToUse);
             } else {
               throw new Error(`Failed to lock ETH gift: ${item.symbol}`);
             }
           } else {
             // Handle ERC20 token - need frontend approval and locking
-            const amountToUse = (item as any).rawAmount || item.amount.toString();
+            const amountToUse = (it as any).rawAmount || String(it.amount || '0');
             
             // Check if token has valid contract address
-            const contractAddress = item.contract || item.address;
+            const contractAddress = (it as any).contract || (it as any).address;
             if (!contractAddress || !ethers.isAddress(contractAddress)) {
               console.warn(`Token ${item.symbol} missing contract address, falling back to backend`);
               throw new Error(`FALLBACK_TO_BACKEND: ${item.symbol} requires backend processing`);
@@ -413,9 +419,9 @@ const CreatePack: React.FC = () => {
                   );
                 }
                 
-                setToast({ open: true, msg: `${item.symbol} approved! Proceeding with lock...`, severity: 'success' });
+                setToast({ open: true, msg: `${it.symbol} approved! Proceeding with lock...`, severity: 'success' });
               } else {
-                setToast({ open: true, msg: `${item.symbol} already approved. Proceeding with lock...`, severity: 'info' });
+                setToast({ open: true, msg: `${it.symbol} already approved. Proceeding with lock...`, severity: 'info' });
                 console.log(`[Approval] Token ${item.symbol} already has sufficient approval`, {
                   currentAllowance: approvalStatus.currentAllowance.toString(),
                   requiredAmount: approvalStatus.requiredAmount.toString()
@@ -427,7 +433,7 @@ const CreatePack: React.FC = () => {
             }
             
             // STEP 3: Lock gift on blockchain directly (after approval is confirmed)
-            setToast({ open: true, msg: `Locking ${item.symbol}...`, severity: 'info' });
+            setToast({ open: true, msg: `Locking ${it.symbol}...`, severity: 'info' });
             
             const lockResult = await lockGiftOnChain(
               contractAddress,
@@ -438,9 +444,9 @@ const CreatePack: React.FC = () => {
               false // not ETH
             );
             
-            if (lockResult?.success && lockResult.giftId) {
-              giftIds.push(lockResult.giftId);
-              setToast({ open: true, msg: `${item.symbol} locked successfully!`, severity: 'success' });
+            if (lockResult?.success && lockResult.giftId != null) {
+              giftIds.push(lockResult.giftId as number);
+              setToast({ open: true, msg: `${it.symbol} locked successfully!`, severity: 'success' });
             } else {
               throw new Error(`Failed to lock ${item.symbol} gift`);
             }
@@ -452,10 +458,10 @@ const CreatePack: React.FC = () => {
           // For multi-token gifts, store all giftIds
           if (giftIds.length > 1) {
             // Store all gift IDs as JSON array for multi-token claiming
-            await apiService.updateGiftPackWithMultipleOnChainIds(packId, giftIds);
+            await apiService.updateGiftPackWithMultipleOnChainIds(packId!, giftIds);
           } else {
             // Single token - use existing method
-            await apiService.updateGiftPackWithOnChainId(packId, giftIds[0], '');
+            await apiService.updateGiftPackWithOnChainId(packId!, giftIds[0], '');
           }
           
           setToast({ 
@@ -500,7 +506,7 @@ const CreatePack: React.FC = () => {
               directError.message.includes('Invalid token contract') ||
               directError.message.includes('Token contract error')) {
             console.log('Using backend fallback for problematic tokens');
-            const lockRes = await apiService.lockGiftPack(packId);
+            const lockRes = await apiService.lockGiftPack(packId!);
             
             // Execute the transactions from user's wallet
             await executeBackendTransactions(lockRes.transactions, lockRes.giftCode);
@@ -530,8 +536,8 @@ const CreatePack: React.FC = () => {
           reason: hasNativeEth ? 'Native ETH detected - using backend' : 'Other reason',
           items: state.items.map(item => ({
             symbol: item.symbol,
-            contract: item.contract,
-            address: item.address,
+            contract: (item as any).contract,
+            address: (item as any).address,
             type: item.type
           }))
         });
@@ -541,7 +547,7 @@ const CreatePack: React.FC = () => {
         }
         
         try {
-          const lockRes = await apiService.lockGiftPack(packId);
+          const lockRes = await apiService.lockGiftPack(packId!);
           
           // Execute the transactions from user's wallet
           await executeBackendTransactions(lockRes.transactions, lockRes.giftCode);
@@ -566,12 +572,20 @@ const CreatePack: React.FC = () => {
       console.error('Lock gift error:', e);
       
         // If the user explicitly canceled the signature during the lock flow,
-        // surface the concise wallet toast and also show draft/regenerate guidance in-page.
+        // show one concise wallet toast and provide inline draft/regenerate guidance.
         if (e?.message?.includes('Signature canceled')) {
           try { notifyWallet('Signature canceled. Please sign to create your gift pack.', 'error'); } catch {}
           const draftGuidance = 'The transaction was canceled. Your gift is still in draft, and the previous secret code is no longer valid. Please generate a new secret code to continue.';
-          setToast({ open: true, msg: draftGuidance, severity: 'error' });
+          // Show guidance inline on the page; avoid showing the same message twice as a toast
           setError(draftGuidance);
+          setLockBusy(false);
+          return;
+        }
+
+        // If the wallet connection was canceled while attempting to lock, surface a single wallet toast
+        if (e?.message?.includes('Wallet connection canceled')) {
+          try { notifyWallet('Wallet connection canceled', 'error'); } catch {}
+          setError('Wallet connection canceled. Please connect your wallet to continue.');
           setLockBusy(false);
           return;
         }
@@ -628,7 +642,7 @@ const CreatePack: React.FC = () => {
     return null;
   };
 
-  const toastAutoHideDuration = (m?: string) => Math.min(15000, Math.max(3000, (m?.length || 0) * 80 + 1000));
+  const toastAutoHideDuration = (m?: string) => Math.min(15000, Math.max(4000, (m?.length || 0) * 80 + 1000));
 
 
   return (

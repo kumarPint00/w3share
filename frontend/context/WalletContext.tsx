@@ -99,8 +99,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         setConnectionRejected(true);
         // auto-clear rejection state after brief timeout so UI returns to normal
         setTimeout(() => setConnectionRejected(false), 3500);
-        // notify global UI
-        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Wallet connection rejected', type: 'error' } })); } catch {}
+        // notify global UI (use 'Canceled' phrasing for friendliness)
+        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Wallet connection canceled', type: 'error' } })); } catch {}
       }
       
       throw error;

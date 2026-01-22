@@ -224,8 +224,9 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
           if (batchSize > 4) {
             const ok = window.confirm(`This gift contains ${batchSize} tokens and will be claimed in a single transaction. This may be expensive in gas. Continue?`);
             if (!ok) {
-              setTxError('User cancelled batch claim');
-              throw new Error('User cancelled batch claim');
+              // Treat manual confirmation cancellation as a transaction cancel so the UI shows a single wallet toast
+              // and does not surface inline errors or the "Start New Claim" button.
+              throw new Error('Transaction canceled');
             }
           }
           setClaimProgress({ current: 0, total: 1, name: 'Batch claim', status: 'in-progress' });
@@ -338,8 +339,19 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
       const lowerMsg = rawMsg.toLowerCase();
 
       // Map common on-chain errors to friendly messages
-      if (lowerMsg.includes('user denied') || lowerMsg.includes('user rejected') || lowerMsg.includes('transaction canceled')) {
-        setTxError('Transaction canceled. Gift remains claimable — please approve the wallet prompt to try again.');
+      if (
+        lowerMsg.includes('user denied') ||
+        lowerMsg.includes('user rejected') ||
+        lowerMsg.includes('transaction canceled') ||
+        lowerMsg.includes('user cancelled') ||
+        lowerMsg.includes('user canceled')
+      ) {
+        // Use a single bottom-left toast for cancellation and do not show the inline error or Start New Claim button
+        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Transaction canceled. Your gift is still claimable. You can try again.', type: 'error' } })); } catch {}
+        setTxError(null);
+        setTxRawError(null);
+        setShowErrorDetails(false);
+        return;
       } else if (lowerMsg.includes('gift pack not found') || lowerMsg.includes('no gift') || lowerMsg.includes('gift not found')) {
         setTxError('On-chain error: gift not found. This usually means the gift was already CLAIMED, never locked on-chain or the on-chain ID is invalid. Confirm the gift code or ask the sender to retry locking it.');
         
@@ -787,7 +799,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                 )}
               </Alert>
             )}
-            {(success || txError) && (
+            {success && (
               <Button
                 variant="contained"
                 sx={{

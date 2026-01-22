@@ -259,7 +259,7 @@ const CreatePack: React.FC = () => {
       // If user canceled signature or wallet connection while generating secret code, show a single wallet toast
       const msg = e?.message || 'Failed to create gift';
       if (typeof msg === 'string' && msg.includes('Signature canceled')) {
-        try { notifyWallet('Signature canceled. Please sign to generate the secret code.', 'error'); } catch {}
+          try { notifyWallet('Signature canceled. Please sign to continue.', 'error'); } catch {}
       } else if (typeof msg === 'string' && msg.includes('Wallet connection canceled')) {
         try { notifyWallet('Wallet connection canceled', 'error'); } catch {}
       } else {
@@ -405,7 +405,22 @@ const CreatePack: React.FC = () => {
                   decimals: approvalStatus.decimals
                 });
                 
-                await approveToken(contractAddress, amountToUse);
+                try {
+                  await approveToken(contractAddress, amountToUse);
+                } catch (approvalError: any) {
+                  const raw = (approvalError?.message || approvalError?.reason || '').toString().toLowerCase();
+                  const userCanceled = approvalError?.code === 4001 || raw.includes('user denied') || raw.includes('rejected') || raw.includes('user rejected');
+                  if (userCanceled) {
+                    // User canceled approval - show concise guidance and stop the lock flow
+                    const guidance = 'Approval canceled. Please generate a new gift code and try again.';
+                    try { notifyWallet(guidance, 'error'); } catch {}
+                    setError(guidance);
+                    setLockBusy(false);
+                    return;
+                  }
+                  // rethrow other approval errors
+                  throw approvalError;
+                }
                 
                 // VERIFICATION: Double-check approval was set
                 setToast({ open: true, msg: `Verifying ${item.symbol} approval...`, severity: 'info' });
@@ -419,7 +434,7 @@ const CreatePack: React.FC = () => {
                   );
                 }
                 
-                setToast({ open: true, msg: `${it.symbol} approved! Proceeding with lock...`, severity: 'success' });
+                setToast({ open: true, msg: `${it.symbol} approved`, severity: 'success' });
               } else {
                 setToast({ open: true, msg: `${it.symbol} already approved. Proceeding with lock...`, severity: 'info' });
                 console.log(`[Approval] Token ${item.symbol} already has sufficient approval`, {
@@ -464,18 +479,13 @@ const CreatePack: React.FC = () => {
             await apiService.updateGiftPackWithOnChainId(packId!, giftIds[0], '');
           }
           
-          setToast({ 
-            open: true, 
-            msg: 'Gift pack successfully locked.', 
-            severity: 'success' 
-          });
           // Build success URL with transaction hash from multi-token gifts
           const params = new URLSearchParams({
             giftCode: code,
-            giftId: giftIds[0].toString()
+            giftId: giftIds[0].toString(),
+            toast: 'locked'
           });
-          // Note: For multi-token gifts, we could collect all transaction hashes
-          // but for simplicity, we'll show the first one if available
+          // Navigate to success page; success toast is shown on that page so it remains visible after navigation
           router.push(`/gift/create/success?${params.toString()}`);
         } else {
           throw new Error('No tokens were successfully locked');
@@ -492,6 +502,15 @@ const CreatePack: React.FC = () => {
             directError.message?.includes('insufficient allowance');
           
           if (isApprovalError) {
+            const deMsg = directError.message || '';
+            if (/user denied|user rejected|rejected|user cancelled|user canceled/i.test(deMsg)) {
+              const guidance = 'Approval canceled. Please generate a new gift code and try again.';
+              try { notifyWallet(guidance, 'error'); } catch {}
+              setError(guidance);
+              setLockBusy(false);
+              return; // stop processing
+            }
+
             setToast({ 
               open: true, 
               msg: `Approval issue: ${directError.message}. Please approve tokens in your wallet.`, 
@@ -552,11 +571,9 @@ const CreatePack: React.FC = () => {
           // Execute the transactions from user's wallet
           await executeBackendTransactions(lockRes.transactions, lockRes.giftCode);
           
-          setToast({ open: true, msg: 'Gift pack successfully locked.', severity: 'success' });
-          
-          // Build success URL with gift code
-          const params = new URLSearchParams({ giftCode: lockRes.giftCode });
-          router.push(`/gift/create/success?${params.toString()}`);
+            // Build success URL with gift code and indicate success toast should be shown on the success page
+            const params = new URLSearchParams({ giftCode: lockRes.giftCode, toast: 'locked' });
+            router.push(`/gift/create/success?${params.toString()}`);
         } catch (backendError: any) {
           console.error('Backend gift creation failed:', backendError);
           // For ETH gifts, show specific error about testnet requirements
@@ -574,7 +591,7 @@ const CreatePack: React.FC = () => {
         // If the user explicitly canceled the signature during the lock flow,
         // show one concise wallet toast and provide inline draft/regenerate guidance.
         if (e?.message?.includes('Signature canceled')) {
-          try { notifyWallet('Signature canceled. Please sign to create your gift pack.', 'error'); } catch {}
+            try { notifyWallet('Signature canceled. Please sign to continue.', 'error'); } catch {}
           const draftGuidance = 'The transaction was canceled. Your gift is still in draft, and the previous secret code is no longer valid. Please generate a new secret code to continue.';
           // Show guidance inline on the page; avoid showing the same message twice as a toast
           setError(draftGuidance);
@@ -711,11 +728,11 @@ const CreatePack: React.FC = () => {
           >
             Choose what you want to include in your gift.
           </Typography>
-          {error && (
+          {/* {error && (
             <Alert severity="error" sx={{ mt: 3 }} onClose={() => setError(null)}>
               {error}
             </Alert>
-          )}
+          )} */}
         </Box>
 
   <Stack spacing={{ xs: 3, md: 4 }}>

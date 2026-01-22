@@ -32,6 +32,7 @@ export default function GiftReady() {
 
   const [copied, setCopied] = useState(false);
   const [txCopied, setTxCopied] = useState(false);
+  const [showSuccessToast, setShowSuccessToast] = useState(false);
   const escrowCtx = useContext(EscrowContext);
 
   // Get the origin for sharing URLs (works in browser environment)
@@ -65,6 +66,14 @@ export default function GiftReady() {
       /* no-op */
     }
   };
+
+  // Show success toast when navigated here after lock
+  const toastFlag = params?.get?.('toast');
+  React.useEffect(() => {
+    if (toastFlag === 'locked') {
+      setShowSuccessToast(true);
+    }
+  }, [toastFlag]);
 
   return (
     <>
@@ -292,6 +301,16 @@ export default function GiftReady() {
           anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
         >
           <Alert severity="success">Transaction hash copied!</Alert>
+        </Snackbar>
+        <Snackbar
+          open={showSuccessToast}
+          autoHideDuration={8000}
+          onClose={() => setShowSuccessToast(false)}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        >
+          <Alert severity="success" variant="filled">
+            Gift pack successfully locked.
+          </Alert>
         </Snackbar>
       </Section>
     </>

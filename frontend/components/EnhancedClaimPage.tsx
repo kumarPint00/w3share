@@ -229,6 +229,27 @@ export default function EnhancedClaimPage() {
       const lowerMsg = msg.toLowerCase();
       const reason = error?.reason?.toLowerCase?.() || '';
       const revertArgs = error?.revert?.args?.[0]?.toLowerCase?.() || '';
+
+      // If the user explicitly rejected the transaction in their wallet, show a bottom-left notification
+      // and do not transition to the post-submission UI (so no "Start New Claim" or similar buttons appear).
+      try {
+        if (
+          error?.code === 4001 ||
+          lowerMsg.includes('user denied') ||
+          lowerMsg.includes('rejected') ||
+          lowerMsg.includes('user cancelled') ||
+          lowerMsg.includes('user canceled') ||
+          lowerMsg.includes('transaction canceled')
+        ) {
+          notifyWallet('Transaction canceled', 'error');
+          // keep the form visible so the user can correct or retry; do not mark as submitted
+          setClaimSubmitted(false);
+          setClaimSuccess(false);
+          setError(null);
+          return;
+        }
+      } catch {}
+
       if (
         lowerMsg.includes('already claimed') ||
         reason.includes('already claimed') ||
@@ -246,12 +267,7 @@ export default function EnhancedClaimPage() {
       } else {
         setError(`Failed to submit claim: ${msg}`);
       }
-      // If the user explicitly rejected the transaction in their wallet, show bottom-left notification
-      try {
-        if (error?.code === 4001 || msg.toLowerCase().includes('user denied') || msg.toLowerCase().includes('rejected')) {
-          notifyWallet('Transaction canceled', 'error');
-        }
-      } catch {}
+
       setClaimSubmitted(true);
       setClaimSuccess(false);
     }

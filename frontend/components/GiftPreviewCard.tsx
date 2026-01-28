@@ -126,7 +126,7 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
               {isERC20 && (item.rawAmount || item.amount !== undefined) && (
                 `Amount: ${item.formattedAmount || formatTokenAmount(item.rawAmount || item.amount || 0, item.decimals ?? 18)}${item.symbol ? ' ' + item.symbol : ''}`
               )}
-              {isNFT && item.amount && `Token ID: ${item.amount}`}
+              {/* {isNFT && item.amount && `Token ID: ${item.amount}`} */}
               {!isERC20 && !isNFT && !item.amount && 'No amount specified'}
             </Typography>
             {/* <Typography variant="caption" color="text.secondary">
@@ -298,12 +298,9 @@ export default function GiftPreviewCard({
 
                 </Typography>
               </Box>
-              {/* <Typography variant="body2" color="text.secondary">
-                {giftPack.senderAddress ? `${giftPack.senderAddress.slice(0,6)}...${giftPack.senderAddress.slice(-4)}` : (onChainStatus?.sender ? `${onChainStatus.sender.slice(0,6)}...${onChainStatus.sender.slice(-4)}` : 'Unknown')}
-              </Typography> */}
             </Grid>
 
-            {/* <Grid item xs={6}>
+            <Grid item xs={6}>
               <Box display="flex" alignItems="center" mb={1}>
                 <TimeIcon sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} />
                 <Typography variant="body2" fontWeight={500}>
@@ -313,7 +310,7 @@ export default function GiftPreviewCard({
               <Typography variant="body2" color={isExpired ? 'error.main' : isNearExpiry ? 'warning.main' : 'text.secondary'}>
                 {expiryDate ? expiryDate.toLocaleString() : 'Unknown'} 
               </Typography>
-            </Grid> */}
+            </Grid>
           </Grid>
 
           {/* Onchain Info

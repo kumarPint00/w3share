@@ -27,6 +27,8 @@ import { GiftItem } from '@/types/gift';
 import { useSearchParams } from 'next/navigation';
 import { useWallet } from '@/context/WalletContext';
 
+const TOKEN_LOGO_MAP: Record<string, string> = {}; // add known token symbol -> image URL mappings here as needed
+
 
 
 interface ClaimGiftFormProps {
@@ -127,10 +129,59 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
             rawAmount: raw,
             decimals,
             formattedAmount: formatted,
-            image: meta?.image || it.image,
+            image: (() => {
+            let img = meta?.image || it.image;
+            try {
+              const sym = (meta?.symbol || it.symbol || it.name || '').toLowerCase();
+              if (!img && sym && TOKEN_LOGO_MAP?.[sym]) img = TOKEN_LOGO_MAP[sym];
+              // mismatch heuristic: if image contains another known token logo, prefer symbol logo
+              if (img && sym && TOKEN_LOGO_MAP?.[sym]) {
+                const imgLower = (img || '').toLowerCase();
+                const mismatched = Object.entries(TOKEN_LOGO_MAP).some(([k, v]) => k !== sym && imgLower.includes(v.toLowerCase()));
+                if (mismatched) {
+                  console.warn('[ClaimGiftForm] Replaced mismatched token image with symbol logo', { symbol: sym, previous: img, new: TOKEN_LOGO_MAP[sym] });
+                  img = TOKEN_LOGO_MAP[sym];
+                }
+              }
+            } catch (e) {}
+            return img;
+          })(),
           };
         });
+        console.log('[ClaimGiftForm] Enriched preview items:', enrichedItems.map((i: any) => ({ symbol: i.symbol, name: i.name, image: i.image })));
         setPreviewGift({ ...gift, items: enrichedItems });
+
+        // If any enriched items are still missing images, try fetching token metadata for those contracts as a best-effort fallback
+        (async () => {
+          try {
+            const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+            const missingContracts = Array.from(new Set(enrichedItems.filter(it => !it.image && it.contract && it.contract !== 'native').map(it => it.contract.toLowerCase())));
+            if (missingContracts.length === 0) return;
+            const fetched: Record<string, any> = {};
+            await Promise.all(missingContracts.map(async (contract) => {
+              try {
+                const r = await fetch(`${backendUrl}/assets/tokens/metadata?contract=${contract}`);
+                if (r.ok) {
+                  const meta = await r.json();
+                  if (meta?.image) fetched[contract] = meta.image;
+                }
+              } catch (e) { /* ignore individual failures */ }
+            }));
+            if (Object.keys(fetched).length > 0) {
+              const updated = enrichedItems.map(it => {
+                const c = (it.contract || '').toLowerCase();
+                if (!it.image && c && fetched[c]) {
+                  console.log('[ClaimGiftForm] Filled missing item image from metadata for', c, fetched[c]);
+                  return { ...it, image: fetched[c] };
+                }
+                return it;
+              });
+              setPreviewGift(prev => prev ? ({ ...prev, items: updated }) : ({ ...gift, items: updated }));
+            }
+          } catch (e) {
+            console.warn('[ClaimGiftForm] Failed to fetch missing token metadata', e);
+          }
+        })();
         if (gift?.claimed) {
           // proactively set success disabled state if code already claimed
           setSuccess(false); // keep success false but disable via claimed flag
@@ -380,6 +431,13 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
     setOnChainStatus(null);
     setIsPending(false);
   }, []);
+
+  // Hide 'Start New Claim' when the error indicates a user-cancelled transaction
+  const isCancelError = (msg: string | null) => {
+    if (!msg) return false;
+    return /transaction canceled/i.test(msg) || /user (?:denied|rejected)/i.test(msg) || /canceled/i.test(msg) && msg.toLowerCase().includes('wallet');
+  };
+  const showStartNewClaim = success || (txError && !isCancelError(txError));
 
 
   return (

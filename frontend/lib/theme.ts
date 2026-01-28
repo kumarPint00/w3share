@@ -18,7 +18,9 @@ declare module '@mui/material/styles' {
 const theme = createTheme({
   palette: {
     primary: { main: '#2563eb' },
-    secondary: { main: '#FF4B82' },
+    secondary: { main: '#e616127b' },
+    /* Set error palette to pink for consistent error alerts */
+    error: { main: '#e616127b', contrastText: '#FFFFFF' },
     neutral: { main: '#46415B', contrastText: '#FFFFFF' },
     background: {
       default: '#E0F2FE',
@@ -115,6 +117,26 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           fontFamily: 'var(--font-inter), Inter, system-ui, sans-serif'
+        }
+      }
+    },
+    MuiAlert: {
+      styleOverrides: {
+        /* Standard (text) variant — use pink for text */
+        standardError: {
+          color: '#e616127b'
+        },
+        /* Outlined variant — pink border and icon */
+        outlinedError: {
+          borderColor: '#e616127b',
+          color: '#e616127b',
+          '& .MuiAlert-icon': { color: '#e616127b' }
+        },
+        /* Filled variant — solid pink background with white text */
+        filledError: {
+          backgroundColor: '#e616127b',
+          color: '#FFFFFF',
+          '& .MuiAlert-icon': { color: '#FFFFFF' }
         }
       }
     }

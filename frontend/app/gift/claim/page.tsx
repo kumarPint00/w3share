@@ -89,13 +89,10 @@ export default function ClaimGiftPage() {
         image = meta.image;
       }
       
-      // Fallback: use symbol-based lookup
+      // Fallback: use symbol-based lookup only when we don't already have an image
       if (t.symbol) {
         const symbolKey = t.symbol.toLowerCase();
-        if (tokenLogoMap[symbolKey]) {
-          if (image !== tokenLogoMap[symbolKey]) {
-            console.log('[ClaimPage] Overriding token image via symbol map', { symbol: t.symbol, previous: image, new: tokenLogoMap[symbolKey] });
-          }
+        if (!image && tokenLogoMap[symbolKey]) {
           image = tokenLogoMap[symbolKey];
         } else if (!image && t.name) {
           const nameKey = t.name.toLowerCase();
@@ -184,14 +181,26 @@ export default function ClaimGiftPage() {
             return num.toPrecision(3);
           })();
 
-          // Determine image with deterministic priority and symbol override
+          // Determine image with deterministic priority and symbol fallback (do not override valid meta images)
           let image = meta?.image || it.image;
           const sym = (meta?.symbol || it.symbol || it.name || '').toLowerCase();
-          if (sym && TOKEN_LOGO_MAP[sym]) {
-            if (image !== TOKEN_LOGO_MAP[sym]) {
-              console.log('[ClaimPage] Overriding preview item image with symbol map', { symbol: sym, previous: image, new: TOKEN_LOGO_MAP[sym] });
-            }
+          if (!image && sym && TOKEN_LOGO_MAP[sym]) {
             image = TOKEN_LOGO_MAP[sym];
+          }
+
+          // Detect obvious mismatches (e.g., USDC logo showing for LINK) and prefer symbol logo
+          try {
+            if (image && sym && TOKEN_LOGO_MAP[sym]) {
+              const imageLower = image.toLowerCase();
+              // If the image filename contains another token's logo filename, treat as mismatch
+              const mismatched = Object.entries(TOKEN_LOGO_MAP).some(([k, v]) => k !== sym && imageLower.includes(v.toLowerCase()));
+              if (mismatched) {
+                image = TOKEN_LOGO_MAP[sym];
+                console.warn('[ClaimPage] Replaced mismatched token image with symbol logo', { symbol: sym, newImage: image });
+              }
+            }
+          } catch (e) {
+            // ignore mismatch detection errors
           }
 
           if (!image) image = '/gift-icon.png';
@@ -209,6 +218,7 @@ export default function ClaimGiftPage() {
             image,
           };
         });
+        console.log('[ClaimPage] Enriched preview items:', enrichedItems.map((i: any) => ({ symbol: i.symbol, name: i.name, image: i.image })));
         setPreviewGift({ ...preview, items: enrichedItems });
       } catch {
         setPreviewGift(null);

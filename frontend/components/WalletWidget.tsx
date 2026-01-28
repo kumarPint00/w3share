@@ -1,7 +1,7 @@
 'use client';
 import { useWallet } from '@/context/WalletContext';
 import { getEthBalance } from '@/lib/balance';
-import { walletLogin } from '@/lib/api';
+
 import {
   Button,
   Typography,
@@ -16,10 +16,6 @@ export default function WalletWidget() {
   const connected = !!address;
   const [ethBal, setEthBal] = useState<number | undefined>(undefined);
   const [err, setErr] = useState<string | null>(null);
-  const [authing, setAuthing] = useState(false);
-  const [authErr, setAuthErr] = useState<string | null>(null);
-  const [hasToken, setHasToken] = useState<boolean>(false);
-  const [loginRejected, setLoginRejected] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -156,17 +152,7 @@ export default function WalletWidget() {
           {address ? `${address.slice(0, 6)}…${address.slice(-4)}` : ''}
         </Typography>
       </Box>
-      {(!hasToken || authErr) && (
-        <Button
-          variant="outlined"
-          size="small"
-          onClick={handleManualSignIn}
-          disabled={authing}
-          sx={{ textTransform: 'none', borderRadius: 999, px: 2, py: 0.5 }}
-        >
-          {authing ? <CircularProgress size={16} /> : 'Sign in'}
-        </Button>
-      )}
+
       <Button
         variant="outlined"
         size="small"
@@ -177,11 +163,7 @@ export default function WalletWidget() {
       >
         Disconnect
       </Button>
-      {authErr && (
-        <Box sx={{ fontSize: 12, color: 'error.main', ml: 1 }}>
-          {authErr}
-        </Box>
-      )}
+
     </Stack>
   );
 }

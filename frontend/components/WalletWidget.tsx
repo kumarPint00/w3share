@@ -32,41 +32,9 @@ export default function WalletWidget() {
     })();
   }, [provider, address]);
 
-  useEffect(() => {
-    try {
-      setHasToken(!!localStorage.getItem('auth_token'));
-    } catch {}
-  }, [provider, address]);
 
-  useEffect(() => {
-    const shouldLogin = connected && provider && !hasToken && !authing && !authErr && !loginRejected;
-    if (!shouldLogin) return;
 
-    (async () => {
-      try {
-        setAuthErr(null);
-        setAuthing(true);
-        await walletLogin(provider!);
-        setHasToken(true);
-        setLoginRejected(false);
-      } catch (e: any) {
-        const rejected = e?.code === 4001 || e?.message?.toLowerCase?.().includes('rejected');
-        if (rejected) {
-          console.log('[WalletWidget] User canceled signing (auto-login)');
-          try {
-            window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Wallet connection canceled', type: 'error' } }));
-          } catch {}
-          setLoginRejected(true);
-          // On canceled sign-in during auto-login, force disconnect so the UI returns to the base Connect Wallet state
-          try { disconnect(); } catch {}
-        } else {
-          setAuthErr(e?.message || 'Failed to sign in');
-        }
-      } finally {
-        setAuthing(false);
-      }
-    })();
-  }, [connected, provider, hasToken, authing, authErr]);
+
 
   if (connected && ethBal === undefined) {
     return <CircularProgress size={22} sx={{ mx: 2 }} />;
@@ -121,28 +89,7 @@ export default function WalletWidget() {
     );
   }
 
-  const handleManualSignIn = async () => {
-    if (!provider) return;
-    try {
-      setLoginRejected(false);
-      setAuthErr(null);
-      setAuthing(true);
-      await walletLogin(provider);
-      setHasToken(true);
-    } catch (e: any) {
-      const rejected = e?.code === 4001 || e?.message?.toLowerCase?.().includes('rejected');
-      if (rejected) {
-        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Wallet connection canceled', type: 'error' } })); } catch {}
-        setLoginRejected(true);
-        try { disconnect(); } catch {}
-        // setAuthErr('Sign-in request was rejected. Click “Sign in” to try again.');
-      } else {
-        setAuthErr(e?.message || 'Failed to sign in');
-      }
-    } finally {
-      setAuthing(false);
-    }
-  };
+
 
   return (
     <Stack direction="row" spacing={2} alignItems="center" textAlign="right">

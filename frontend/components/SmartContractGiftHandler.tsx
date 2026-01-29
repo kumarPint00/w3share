@@ -87,7 +87,7 @@ export default function SmartContractGiftHandler({
       const msg = error instanceof Error ? error.message : 'Unknown error';
       try {
         if ((error as any)?.code === 4001 || String(msg).toLowerCase().includes('rejected') || String(msg).toLowerCase().includes('user denied')) {
-          notifyWallet('Transaction canceled', 'error');
+          notifyWallet('Transaction canceled', 'warning');
         }
       } catch {}
       alert(`Failed to lock gift on blockchain: ${msg}`);
@@ -120,7 +120,7 @@ export default function SmartContractGiftHandler({
         const msg = error instanceof Error ? error.message : 'Unknown error';
         try {
           if ((error as any)?.code === 4001 || String(msg).toLowerCase().includes('rejected') || String(msg).toLowerCase().includes('user denied')) {
-            notifyWallet('Transaction canceled', 'error');
+            notifyWallet('Transaction canceled', 'warning');
           }
         } catch {}
         alert(`Failed to get claim data: ${msg}`);

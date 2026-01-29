@@ -259,9 +259,9 @@ const CreatePack: React.FC = () => {
       // If user canceled signature or wallet connection while generating secret code, show a single wallet toast
       const msg = e?.message || 'Failed to create gift';
       if (typeof msg === 'string' && msg.includes('Signature canceled')) {
-          try { notifyWallet('Signature canceled. Please sign to continue.', 'error'); } catch {}
+          try { notifyWallet('Signature canceled. Please sign to continue.', 'warning'); } catch {}
       } else if (typeof msg === 'string' && msg.includes('Wallet connection canceled')) {
-        try { notifyWallet('Wallet connection canceled', 'error'); } catch {}
+        try { notifyWallet('Wallet connection canceled', 'warning'); } catch {}
       } else {
         setToast({ open: true, msg, severity: 'error' });
       }
@@ -591,7 +591,7 @@ const CreatePack: React.FC = () => {
         // If the user explicitly canceled the signature during the lock flow,
         // show one concise wallet toast and provide inline draft/regenerate guidance.
         if (e?.message?.includes('Signature canceled')) {
-            try { notifyWallet('Signature canceled. Please sign to continue.', 'error'); } catch {}
+            try { notifyWallet('Signature canceled. Please sign to continue.', 'warning'); } catch {}
           const draftGuidance = 'The transaction was canceled. Your gift is still in draft, and the previous secret code is no longer valid. Please generate a new secret code to continue.';
           // Show guidance inline on the page; avoid showing the same message twice as a toast
           setError(draftGuidance);
@@ -601,7 +601,7 @@ const CreatePack: React.FC = () => {
 
         // If the wallet connection was canceled while attempting to lock, surface a single wallet toast
         if (e?.message?.includes('Wallet connection canceled')) {
-          try { notifyWallet('Wallet connection canceled', 'error'); } catch {}
+          try { notifyWallet('Wallet connection canceled', 'warning'); } catch {}
           setError('Wallet connection canceled. Please connect your wallet to continue.');
           setLockBusy(false);
           return;
@@ -615,7 +615,7 @@ const CreatePack: React.FC = () => {
         errorMessage = 'Smart contract call failed. This usually means: (1) Tokens not approved, (2) Insufficient balance, or (3) Contract issue. Try approving tokens manually in MetaMask first.';
       } else if (lowerError.includes('user denied') || lowerError.includes('user rejected') || lowerError.includes('transaction canceled')) {
         errorMessage = 'The transaction was canceled. Your gift is still in draft, and the previous secret code is no longer valid. Please generate a new secret code to continue.';
-        try { notifyWallet('Signature canceled. Please sign to create your gift pack.', 'error'); } catch {}
+        try { notifyWallet('Signature canceled. Please sign to create your gift pack.', 'warning'); } catch {}
       } else if (lowerError.includes('insufficient')) {
         errorMessage = `${errorMessage} - Make sure you have enough tokens AND enough gas (ETH).`;
       } else if (lowerError.includes('approval')) {

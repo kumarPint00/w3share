@@ -42,7 +42,7 @@ export default function WalletWidget() {
 
   if (!connected) {
     // Always show the standard Connect Wallet button when disconnected.
-    // Connection cancellations should be surfaced via bottom-left toasts only (no header messages).
+    // Connection cancellations are handled by WalletContext via toast notifications so we avoid inline banners.
     return (
       <>
         <Button
@@ -58,7 +58,7 @@ export default function WalletWidget() {
               console.error('[WalletWidget] Connect error:', e);
               const errorMessage = e?.message || 'Failed to connect wallet';
               // If user canceled the connect flow, do not show header text or duplicate toast
-              if (typeof errorMessage === 'string' && errorMessage.includes('Wallet connection canceled')) {
+              if (typeof errorMessage === 'string' && /wallet connection canceled|user denied|rejected/i.test(errorMessage)) {
                 // WalletContext already dispatched the bottom-left notification; no inline error required
               } else {
                 setErr(errorMessage);

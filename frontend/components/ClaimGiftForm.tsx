@@ -398,7 +398,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
         lowerMsg.includes('user canceled')
       ) {
         // Use a single bottom-left toast for cancellation and do not show the inline error or Start New Claim button
-        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Transaction canceled. Your gift is still claimable. You can try again.', type: 'error' } })); } catch {}
+        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Transaction canceled. Your gift is still claimable. You can try again.', type: 'warning' } })); } catch {}
         setTxError(null);
         setTxRawError(null);
         setShowErrorDetails(false);

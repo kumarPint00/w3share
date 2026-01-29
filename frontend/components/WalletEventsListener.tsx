@@ -32,16 +32,22 @@ export default function WalletEventsListener() {
       const type: Severity = detail.type === 'error' ? 'error' : detail.type === 'warning' ? 'warning' : 'info';
       const duration = computeDuration(message, detail.duration);
 
-      // If the message indicates a user-canceled action, make it visually distinct
-      const isCancel = /canceled/i.test(message || '');
-      const resolvedSeverity: Severity = isCancel ? 'error' : type;
+      // Deduplicate identical notifications: if the same normalized message is already shown, ignore the new one
+      const normalized = (message || '').trim().toLowerCase();
+      const currentlyShown = (msg || '').trim().toLowerCase();
+      if (open && normalized && normalized === currentlyShown) {
+        return; // duplicate message - ignore
+      }
+
+      // If the message indicates a user-canceled action, treat as a warning (less prominent)
+      const isCancel = /canceled|cancelled|user denied|user rejected/i.test(message || '');
+      const resolvedSeverity: Severity = isCancel ? 'warning' : type;
 
       setMsg(message);
       setSeverity(resolvedSeverity);
       setAutoHideDuration(duration);
       setOpen(true);
-    };
-    window.addEventListener('wallet:notification', handler as EventListener);
+    };    window.addEventListener('wallet:notification', handler as EventListener);
     return () => window.removeEventListener('wallet:notification', handler as EventListener);
   }, []);
 
@@ -67,13 +73,10 @@ export default function WalletEventsListener() {
     >
       <Alert
         severity={severity}
-        sx={(theme) => ({
+        sx={{
           minWidth: 260,
           boxShadow: 3,
-          // Make canceled messages visually more prominent (brighter red)
-          backgroundColor: /canceled/i.test(msg) ? (theme.palette.error.main || '#ff4d4f') : undefined,
-          color: /canceled/i.test(msg) ? '#fff' : undefined,
-        })}
+        }}
         action={
           <IconButton size="small" aria-label="close" color="inherit" onClick={() => setOpen(false)}>
             <CloseIcon fontSize="small" />

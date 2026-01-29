@@ -241,7 +241,7 @@ export default function EnhancedClaimPage() {
           lowerMsg.includes('user canceled') ||
           lowerMsg.includes('transaction canceled')
         ) {
-          notifyWallet('Transaction canceled', 'error');
+          notifyWallet('Transaction canceled', 'warning');
           // keep the form visible so the user can correct or retry; do not mark as submitted
           setClaimSubmitted(false);
           setClaimSuccess(false);

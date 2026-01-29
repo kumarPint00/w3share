@@ -94,15 +94,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       console.error('[WalletContext] Connection failed:', error);
       
       // Check if user rejected the request (MetaMask error code 4001)
-      if (error?.code === 4001 || error?.message?.includes('rejected')) {
+      if (
+        error?.code === 4001 ||
+        (typeof error?.message === 'string' && /rejected|user denied|user rejected/i.test(error.message))
+      ) {
         console.log('[WalletContext] User rejected wallet connection');
         setConnectionRejected(true);
-        // auto-clear rejection state after brief timeout so UI returns to normal
-        setTimeout(() => setConnectionRejected(false), 3500);
-        // notify global UI (use 'Canceled' phrasing for friendliness)
-        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Wallet connection canceled', type: 'error' } })); } catch {}
+        // auto-clear rejection state after a slightly longer timeout so the user can see the UI
+        setTimeout(() => setConnectionRejected(false), 5000);
+        // notify global UI (use warning level for cancellations)
+        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Wallet connection canceled', type: 'warning' } })); } catch {}
+        // Swallow the error for user-initiated cancellations so callers don't need to handle raw exceptions
+        return;
       }
-      
+      // Unexpected errors should still bubble up
       throw error;
     }
   };

@@ -11,7 +11,7 @@ import {
 } from '@mui/material';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ShareIcon from '@mui/icons-material/Share';
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import Image from 'next/image';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Section from '@/components/Section';
@@ -69,7 +69,7 @@ export default function GiftReady() {
 
   // Show success toast when navigated here after lock
   const toastFlag = params?.get?.('toast');
-  React.useEffect(() => {
+  useEffect(() => {
     if (toastFlag === 'locked') {
       setShowSuccessToast(true);
     }

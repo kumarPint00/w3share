@@ -592,7 +592,7 @@ const CreatePack: React.FC = () => {
         // show one concise wallet toast and provide inline draft/regenerate guidance.
         if (e?.message?.includes('Signature canceled')) {
             try { notifyWallet('Signature canceled. Please sign to continue.', 'warning'); } catch {}
-          const draftGuidance = 'The transaction was canceled. Your gift is still in draft, and the previous secret code is no longer valid. Please generate a new secret code to continue.';
+          const draftGuidance = 'Transaction canceled. Please generate a new gift code and try again.';
           // Show guidance inline on the page; avoid showing the same message twice as a toast
           setError(draftGuidance);
           setLockBusy(false);
@@ -614,7 +614,7 @@ const CreatePack: React.FC = () => {
       if (lowerError.includes('missing revert data')) {
         errorMessage = 'Smart contract call failed. This usually means: (1) Tokens not approved, (2) Insufficient balance, or (3) Contract issue. Try approving tokens manually in MetaMask first.';
       } else if (lowerError.includes('user denied') || lowerError.includes('user rejected') || lowerError.includes('transaction canceled')) {
-        errorMessage = 'The transaction was canceled. Your gift is still in draft, and the previous secret code is no longer valid. Please generate a new secret code to continue.';
+        errorMessage = 'TTransaction canceled. Please generate a new gift code and try again.';
         try { notifyWallet('Signature canceled. Please sign to create your gift pack.', 'warning'); } catch {}
       } else if (lowerError.includes('insufficient')) {
         errorMessage = `${errorMessage} - Make sure you have enough tokens AND enough gas (ETH).`;

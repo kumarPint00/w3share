@@ -796,7 +796,6 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                 </Button>
               );
 
-              // If the gift is already claimed, show the disabled button but still provide a tooltip explaining why
               return (
                 !success && (
                   isAlreadyClaimed ? (
@@ -810,60 +809,39 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
               );
             })()}
 
-            {txHashes.length > 0 && (
+            {txHashes.length > 0 && success && (
               <Alert
-                severity={success ? 'success' : 'info'}
-                sx={{
-                  mt: 3,
-                  backgroundColor: success ? '#e8f5e8' : '#e3f2fd',
-                  color: success ? '#2e7d32' : '#1565c0',
-                  fontFamily: 'Arial, sans-serif',
-                  fontWeight: 'bold'
-                }}
+              severity="success"
+              sx={{
+                mt: 3,
+                backgroundColor: '#e8f5e8',
+                color: '#2e7d32',
+                fontFamily: 'Arial, sans-serif',
+                fontWeight: 'bold',
+              }}
               >
-                {success ? (
-                  <>
-                    Gift claimed successfully!{' '}
-                    <div>
-                      {txHashes.map((h, i) => {
-                        const name = (previewGift?.items && previewGift.items.length === txHashes.length) ? (previewGift.items[i]?.name || previewGift.items[i]?.symbol) : undefined;
-                        return (
-                          <div key={h} style={{ marginTop: i === 0 ? 6 : 4 }}>
-                            <a
-                              href={`https://sepolia.etherscan.io/tx/${h}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              style={{ color: '#2e7d32', textDecoration: 'underline' }}
-                            >
-                              {/* View Tx {i + 1} on Etherscan */}
-                              View transaction on Etherscan
-                            </a>
-                            {name && <span style={{ marginLeft: 8, color: '#2e7d32' }}>• {name}</span>}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    {/* Transaction sent:{' '}
-                    {txHashes.map((h, i) => (
-                      <div key={h} style={{ marginTop: i === 0 ? 6 : 4 }}>
-                        <a
-                          href={`https://sepolia.etherscan.io/tx/${h}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{ color: '#1565c0', textDecoration: 'underline' }}
-                        >
-                          {h}
-                        </a>
-                        {previewGift?.items && previewGift.items.length === txHashes.length && (
-                          <span style={{ marginLeft: 8, color: '#1565c0' }}>• {previewGift.items[i]?.name || previewGift.items[i]?.symbol}</span>
-                        )}
-                      </div>
-                    ))} */}
-                  </>
-                )}
+              Gift claimed successfully!
+              <div>
+                {txHashes.map((h, i) => {
+                const name =
+                  previewGift?.items && previewGift.items.length === txHashes.length
+                  ? previewGift.items[i]?.name || previewGift.items[i]?.symbol
+                  : undefined;
+                return (
+                  <div key={h} style={{ marginTop: i === 0 ? 6 : 4 }}>
+                  <a
+                    href={`https://sepolia.etherscan.io/tx/${h}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#2e7d32', textDecoration: 'underline' }}
+                  >
+                    View transaction on Etherscan
+                  </a>
+                  {name && <span style={{ marginLeft: 8, color: '#2e7d32' }}>• {name}</span>}
+                  </div>
+                );
+                })}
+              </div>
               </Alert>
             )}
             {txError && (

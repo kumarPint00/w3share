@@ -295,7 +295,7 @@ export class SmartContractGiftUtils {
         case 'CLAIMED':
           return { status: 'Claimed', color: 'green', description: 'Gift has been claimed' };
         case 'REFUNDED':
-          return { status: 'Refunded', color: 'yellow', description: 'Gift has been refunded' };
+          return { status: 'Refunded', color: 'red', description: 'Gift has been refunded' };
         default:
           return { status: 'Unknown', color: 'gray', description: 'Unknown status' };
       }

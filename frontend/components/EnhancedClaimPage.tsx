@@ -128,6 +128,21 @@ export default function EnhancedClaimPage() {
     giftPreview?.onChainStatus?.claimer
   );
 
+  const isExpiredPreview = (() => {
+    try {
+      if (!giftPreview) return false;
+      const now = Date.now();
+      if (giftPreview.giftPack?.expiry && new Date(giftPreview.giftPack.expiry).getTime() < now) return true;
+      if (giftPreview.onChainStatus?.expiryTimestamp && (giftPreview.onChainStatus.expiryTimestamp * 1000) < now) return true;
+    } catch {}
+    return false;
+  })();
+
+  const isRefundedPreview = !!(
+    giftPreview?.giftPack?.status === 'REFUNDED' ||
+    giftPreview?.onChainStatus?.status === 'REFUNDED'
+  );
+
   console.log('Gift Preview:', giftPreview);
 
   const {
@@ -672,12 +687,14 @@ export default function EnhancedClaimPage() {
                     (mode === 'id' ? !!idError || !giftIdNum : !!codeError || !giftCodeInput.trim()) ||
                     !address ||
                     submitClaim.isPending ||
-                    isAlreadyClaimedPreview
+                    isAlreadyClaimedPreview ||
+                    isExpiredPreview ||
+                    isRefundedPreview
                   }
                   startIcon={submitClaim.isPending ? <CircularProgress size={24} color="inherit" /> : null}
                   size="large"
                 >
-                  {submitClaim.isPending ? 'Submitting...' : isAlreadyClaimedPreview ? 'Gift Already Claimed' : '🎁 Claim Gift'}
+                  {submitClaim.isPending ? 'Submitting...' : isAlreadyClaimedPreview ? 'Gift Already Claimed' : isRefundedPreview ? 'Gift Refunded' : isExpiredPreview ? 'Gift Expired' : '🎁 Claim Gift'}
                 </ClaimButton>
               </Box>
               {isAlreadyClaimedPreview && (
@@ -686,6 +703,12 @@ export default function EnhancedClaimPage() {
                   {giftPreview?.onChainStatus?.claimer && (
                     <div style={{ marginTop: 6 }}>Claimed by <code style={{ fontFamily: 'monospace' }}>{giftPreview.onChainStatus.claimer}</code></div>
                   )}
+                </Alert>
+              )}
+
+              {(isExpiredPreview || isRefundedPreview) && (
+                <Alert severity="error" sx={{ mt: 2 }}>
+                  {isRefundedPreview ? 'This gift has been refunded to the sender and is no longer claimable.' : 'This gift has expired and is no longer claimable. The tokens will be refunded to the sender.'}
                 </Alert>
               )}
             </>

@@ -50,6 +50,8 @@ const getStatusColor = (status: string) => {
       return { color: '#4caf50', bg: '#e8f5e8', icon: <ClaimedIcon /> };
     case 'EXPIRED':
       return { color: '#f44336', bg: '#ffebee', icon: <ExpiredIcon /> };
+    case 'REFUNDED':
+      return { color: '#e61612', bg: '#fdecea', icon: <ExpiredIcon /> };
     case 'LOCKED':
       return { color: '#2196f3', bg: '#e3f2fd', icon: <LockedIcon /> };
     default:
@@ -157,9 +159,14 @@ export default function GiftPreviewCard({
   onChainStatus,
   showAnimation = true,
 }: GiftPreviewCardProps) {
-  const status = giftPack?.status || 'LOCKED';
+  const status = (() => {
+    // Prefer explicit refunded state from DB, then on-chain state, then stored status
+    if (giftPack?.status === 'REFUNDED') return 'REFUNDED';
+    if (onChainStatus?.status) return onChainStatus.status;
+    return giftPack?.status || 'LOCKED';
+  })();
   const statusInfo = getStatusColor(status);
-  const isExpired = status === 'EXPIRED';
+  const isExpired = status === 'EXPIRED' || status === 'REFUNDED';
   const isClaimed = status === 'CLAIMED';
   const expiryDate = giftPack.expiry ? new Date(giftPack.expiry) : (giftPack.sealedAt ? new Date(giftPack.sealedAt) : undefined);
   const isNearExpiry = expiryDate && !isExpired && !isClaimed &&

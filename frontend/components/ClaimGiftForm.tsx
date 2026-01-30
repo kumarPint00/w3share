@@ -186,6 +186,8 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
           // proactively set success disabled state if code already claimed
           setSuccess(false); // keep success false but disable via claimed flag
         }
+
+        // If the gift has an expiry in the past, we still set the preview; UI will interpret expired/refunded state.
         // On-chain status fetch if possible
         if (gift.giftIdOnChain !== undefined && gift.giftIdOnChain !== null) {
           try {
@@ -244,10 +246,27 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
     const validationError = validateCode(giftCodeInput);
     setCodeError(validationError);
     if (validationError) return;
-    // Prevent attempting to claim if preview indicates it's already claimed
+    // Prevent attempting to claim if preview indicates it's already claimed or expired/refunded
     const isAlreadyClaimedNow = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
+    const nowMs = Date.now();
+    const isExpiredNow = (() => {
+      try {
+        if (previewGift?.expiry && new Date(previewGift.expiry).getTime() < nowMs) return true;
+      } catch {}
+      try {
+        if (onChainStatus?.expiryTimestamp && (onChainStatus.expiryTimestamp * 1000) < nowMs) return true;
+      } catch {}
+      return false;
+    })();
+    const isRefundedNow = previewGift?.status === 'REFUNDED' || onChainStatus?.status === 'REFUNDED';
+
     if (isAlreadyClaimedNow) {
       setTxError('This gift has already been claimed. See details above.');
+      return;
+    }
+
+    if (isExpiredNow || isRefundedNow) {
+      setTxError('This gift has expired and is no longer claimable. The tokens will be (or have been) refunded to the sender.');
       return;
     }
     setIsPending(true);
@@ -530,45 +549,90 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                 <GiftPreviewCard giftPack={previewGift} onChainStatus={onChainStatus} showAnimation={true} />
               </Box>
             )}
+
             {previewGift && !previewLoading && (() => {
+              const nowMs = Date.now();
               const isAlreadyClaimed = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
-              if (!isAlreadyClaimed) return null;
+              const isExpired = (() => {
+                try { if (previewGift?.expiry && new Date(previewGift.expiry).getTime() < nowMs) return true; } catch {}
+                try { if (onChainStatus?.expiryTimestamp && (onChainStatus.expiryTimestamp * 1000) < nowMs) return true; } catch {}
+                return false;
+              })();
+              const isRefunded = previewGift?.status === 'REFUNDED' || onChainStatus?.status === 'REFUNDED';
+
+              if (!isAlreadyClaimed && !isExpired && !isRefunded) return null;
 
               const claimer = onChainStatus?.claimer || undefined;
               const giftId = onChainStatus?.giftId || previewGift?.giftIdOnChain;
               const claimPageUrl = giftId ? `${typeof window !== 'undefined' ? window.location.origin : ''}/gift/claim?giftId=${giftId}` : null;
 
-              return (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <strong>This gift has already been claimed</strong>
-                      {claimer && <div style={{ marginTop: 6 }}>Claimed by <code style={{ fontFamily: 'monospace' }}>{claimer}</code></div>}
-                      {!claimer && <div style={{ marginTop: 6 }}>The gift was already claimed on-chain.</div>}
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      {claimPageUrl && (
-                        <Button size="small" variant="outlined" href={claimPageUrl} target="_blank" rel="noopener noreferrer" sx={{ textTransform: 'none' }}>
-                          View on-chain
+              if (isAlreadyClaimed) {
+                return (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <strong>This gift has already been claimed</strong>
+                        {claimer && <div style={{ marginTop: 6 }}>Claimed by <code style={{ fontFamily: 'monospace' }}>{claimer}</code></div>}
+                        {!claimer && <div style={{ marginTop: 6 }}>The gift was already claimed on-chain.</div>}
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        {claimPageUrl && (
+                          <Button size="small" variant="outlined" href={claimPageUrl} target="_blank" rel="noopener noreferrer" sx={{ textTransform: 'none' }}>
+                            View on-chain
+                          </Button>
+                        )}
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => {
+                            setGiftCodeInput('');
+                            setPreviewGift(null);
+                            setOnChainStatus(null);
+                            setCodeError(null);
+                          }}
+                          sx={{ textTransform: 'none' }}
+                        >
+                          Clear
                         </Button>
-                      )}
-                      <Button
-                        size="small"
-                        variant="contained"
-                        onClick={() => {
-                          setGiftCodeInput('');
-                          setPreviewGift(null);
-                          setOnChainStatus(null);
-                          setCodeError(null);
-                        }}
-                        sx={{ textTransform: 'none' }}
-                      >
-                        Clear
-                      </Button>
+                      </div>
                     </div>
-                  </div>
-                </Alert>
-              );
+                  </Alert>
+                );
+              }
+
+              // Expired or refunded
+              // return (
+                // <Alert severity="error" sx={{ mb: 2 }}>
+                //   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                //     <div>
+                //       <strong>This gift is no longer claimable</strong>
+                //       {isRefunded ? (
+                //         <div style={{ marginTop: 6 }}>The gift has been refunded to the sender and cannot be claimed.</div>
+                //       ) : (
+                //         <div style={{ marginTop: 6 }}>The gift has expired and is no longer claimable. The tokens will be refunded to the sender.</div>
+                //       )}
+                //       {previewGift?.senderAddress && (
+                //         <div style={{ marginTop: 6 }}>Sender: <code style={{ fontFamily: 'monospace' }}>{previewGift.senderAddress}</code></div>
+                //       )}
+                //     </div>
+                //     <div style={{ display: 'flex', gap: 8 }}>
+                //       <Button
+                //         size="small"
+                //         variant="contained"
+                //         onClick={() => {
+                //           setGiftCodeInput('');
+                //           setPreviewGift(null);
+                //           setOnChainStatus(null);
+                //           setCodeError(null);
+                //         }}
+                //         sx={{ textTransform: 'none' }}
+                //       >
+                //         Clear
+                //       </Button>
+                //     </div>
+                //   </div>
+                // </Alert>
+              // );
             })()}
 
             {!walletAddress && (
@@ -656,16 +720,28 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
             )}
 
             {(() => {
-              // const isAlreadyClaimed = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
-              const isAlreadyClaimed = previewGift?.status === 'CLAIMED' 
-              console.log('Determining button state:', { isAlreadyClaimed, previewGift, onChainStatus });
+              const nowMs = Date.now();
+              const isAlreadyClaimed = previewGift?.status === 'CLAIMED' || !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
+              const isExpired = (() => {
+                try { if (previewGift?.expiry && new Date(previewGift.expiry).getTime() < nowMs) return true; } catch {}
+                try { if (onChainStatus?.expiryTimestamp && (onChainStatus.expiryTimestamp * 1000) < nowMs) return true; } catch {}
+                return false;
+              })();
+              const isRefunded = previewGift?.status === 'REFUNDED' || onChainStatus?.status === 'REFUNDED';
+
+              console.log('Determining button state:', { isAlreadyClaimed, isExpired, isRefunded, previewGift, onChainStatus });
+
               const isInvalidGift = !previewLoading && giftCodeInput.trim() && !previewGift && !isAlreadyClaimed && !isPending && !codeError ? true : codeError === 'Invalid Code';
-              const buttonDisabled = !!codeError || !giftCodeInput.trim() || !walletAddress || isPending || isAlreadyClaimed || isInvalidGift;
+              const buttonDisabled = !!codeError || !giftCodeInput.trim() || !walletAddress || isPending || isAlreadyClaimed || isInvalidGift || isExpired || isRefunded;
               const label = isAlreadyClaimed
                 ? 'Gift Already Claimed'
-                : isInvalidGift
-                  ? 'Invalid Code'
-                  : (isPending ? 'Submitting...' : 'Claim Gift');
+                : isRefunded
+                  ? 'Gift Refunded'
+                  : isExpired
+                    ? 'Gift Expired'
+                    : isInvalidGift
+                      ? 'Invalid Code'
+                      : (isPending ? 'Submitting...' : 'Claim Gift');
 
               const buttonElement = (
                 <Button

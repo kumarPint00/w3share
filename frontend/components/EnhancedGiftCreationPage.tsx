@@ -517,7 +517,7 @@ export default function EnhancedGiftCreationPage() {
                     Lock Gift on Blockchain
                   </Typography>
 
-                  <Alert severity="warning" sx={{ mb: 3, textAlign: 'left' }}>
+                  <Alert severity="error" sx={{ mb: 3, textAlign: 'left' }}>
                     Once locked, the gift cannot be modified and will be secured on the blockchain.
                   </Alert>
 

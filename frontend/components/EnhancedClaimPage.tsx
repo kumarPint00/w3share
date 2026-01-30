@@ -479,7 +479,7 @@ export default function EnhancedClaimPage() {
               {/* Preview Error */}
               {giftPreviewError && enablePreview && (
                 <Alert
-                  severity="warning"
+                  severity="error"
                   sx={{
                     mb: 3,
                     borderRadius: 3,

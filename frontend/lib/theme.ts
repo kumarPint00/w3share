@@ -19,8 +19,8 @@ const theme = createTheme({
   palette: {
     primary: { main: '#2563eb' },
     secondary: { main: '#e616127b' },
-    /* Set error palette to pink for consistent error alerts */
-    error: { main: '#e616127b', contrastText: '#FFFFFF' },
+    /* Set error palette to pink for consistent error alerts (opaque) */
+    error: { main: '#e61612', contrastText: '#FFFFFF' },
     neutral: { main: '#46415B', contrastText: '#FFFFFF' },
     background: {
       default: '#E0F2FE',
@@ -124,17 +124,17 @@ const theme = createTheme({
       styleOverrides: {
         /* Standard (text) variant — use pink for text */
         standardError: {
-          color: '#e616127b'
+          color: '#e61612'
         },
         /* Outlined variant — pink border and icon */
         outlinedError: {
-          borderColor: '#e616127b',
-          color: '#e616127b',
-          '& .MuiAlert-icon': { color: '#e616127b' }
+          borderColor: '#e61612',
+          color: '#e61612',
+          '& .MuiAlert-icon': { color: '#e61612' }
         },
         /* Filled variant — solid pink background with white text */
         filledError: {
-          backgroundColor: '#e616127b',
+          backgroundColor: '#e61612',
           color: '#FFFFFF',
           '& .MuiAlert-icon': { color: '#FFFFFF' }
         }

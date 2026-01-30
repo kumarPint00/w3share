@@ -759,7 +759,8 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                               rel="noopener noreferrer"
                               style={{ color: '#2e7d32', textDecoration: 'underline' }}
                             >
-                              View Tx {i + 1} on Etherscan
+                              {/* View Tx {i + 1} on Etherscan */}
+                              View transaction on Etherscan
                             </a>
                             {name && <span style={{ marginLeft: 8, color: '#2e7d32' }}>• {name}</span>}
                           </div>
@@ -769,7 +770,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                   </>
                 ) : (
                   <>
-                    Transaction sent:{' '}
+                    {/* Transaction sent:{' '}
                     {txHashes.map((h, i) => (
                       <div key={h} style={{ marginTop: i === 0 ? 6 : 4 }}>
                         <a
@@ -784,7 +785,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                           <span style={{ marginLeft: 8, color: '#1565c0' }}>• {previewGift.items[i]?.name || previewGift.items[i]?.symbol}</span>
                         )}
                       </div>
-                    ))}
+                    ))} */}
                   </>
                 )}
               </Alert>

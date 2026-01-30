@@ -39,9 +39,8 @@ export default function WalletEventsListener() {
         return; // duplicate message - ignore
       }
 
-      // If the message indicates a user-canceled action, treat as a warning (less prominent)
-      const isCancel = /canceled|cancelled|user denied|user rejected/i.test(message || '');
-      const resolvedSeverity: Severity = isCancel ? 'warning' : type;
+      // Force all notifications to render as error (opaque pink filled)
+      const resolvedSeverity: Severity = 'error';
 
       setMsg(message);
       setSeverity(resolvedSeverity);
@@ -72,6 +71,7 @@ export default function WalletEventsListener() {
       autoHideDuration={autoHideDuration}
     >
       <Alert
+        variant="filled"
         severity={severity}
         sx={{
           minWidth: 260,

@@ -275,7 +275,7 @@ const ContractAdminPanel = () => {
             </Grid>
             
             {status?.isCurrentUserOwner === false && (
-              <Alert severity="warning" sx={{ mt: 2 }}>
+              <Alert severity="error" sx={{ mt: 2 }}>
                 <AlertTitle>Warning</AlertTitle>
                 You are not the contract owner. Your ability to manage the contract is limited.
               </Alert>

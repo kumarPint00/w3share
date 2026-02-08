@@ -531,7 +531,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                     borderWidth: 2,
                   },
                   '& input': {
-                    py: 2,
+                    py: { xs: 3, md: 2 },
                     px: 2.5,
                     '&::placeholder': {
                       color: '#9ca3af',

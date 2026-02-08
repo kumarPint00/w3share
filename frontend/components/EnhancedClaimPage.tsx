@@ -402,6 +402,10 @@ export default function EnhancedClaimPage() {
                       borderRadius: 3,
                       '& fieldset': {
                         borderWidth: 2,
+                      },
+                      '& input': {
+                        py: { xs: 3, md: 2 },
+                        px: 2.5,
                       }
                     }
                   }}
@@ -447,6 +451,10 @@ export default function EnhancedClaimPage() {
                       borderRadius: 3,
                       '& fieldset': {
                         borderWidth: 2,
+                      },
+                      '& input': {
+                        py: { xs: 3, md: 2 },
+                        px: 2.5,
                       }
                     }
                   }}

@@ -111,7 +111,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
           }
         }
 
-        const enrichedItems: GiftItem[] = (gift.items || []).map((it: any, idx: number) => {
+        const enrichedItems: any[] = (gift.items || []).map((it: any, idx: number) => {
           const key = (it.contract || '').toLowerCase();
           const meta: any = allowMap[key];
           const decimals = meta?.decimals ?? 18;
@@ -155,7 +155,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
         (async () => {
           try {
             const backendUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
-            const missingContracts = Array.from(new Set(enrichedItems.filter(it => !it.image && it.contract && it.contract !== 'native').map(it => it.contract.toLowerCase())));
+            const missingContracts = Array.from(new Set((enrichedItems as any[]).filter((it: any) => !it.image && it.contract && it.contract !== 'native').map((it: any) => (it.contract || '').toLowerCase())));
             if (missingContracts.length === 0) return;
             const fetched: Record<string, any> = {};
             await Promise.all(missingContracts.map(async (contract) => {
@@ -168,7 +168,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
               } catch (e) { /* ignore individual failures */ }
             }));
             if (Object.keys(fetched).length > 0) {
-              const updated = enrichedItems.map(it => {
+              const updated = (enrichedItems as any[]).map((it: any) => {
                 const c = (it.contract || '').toLowerCase();
                 if (!it.image && c && fetched[c]) {
                   console.log('[ClaimGiftForm] Filled missing item image from metadata for', c, fetched[c]);
@@ -176,7 +176,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                 }
                 return it;
               });
-              setPreviewGift(prev => prev ? ({ ...prev, items: updated }) : ({ ...gift, items: updated }));
+              setPreviewGift((prev: any) => prev ? ({ ...prev, items: updated }) : ({ ...gift, items: updated }));
             }
           } catch (e) {
             console.warn('[ClaimGiftForm] Failed to fetch missing token metadata', e);
@@ -223,16 +223,25 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
     return null;
   }, []);
 
+  const codeInputRef = useRef<HTMLInputElement | null>(null);
+
   const pasteCodeFromClipboard = useCallback(async () => {
     try {
-      const txt = await navigator.clipboard.readText();
-      if (txt) {
-        setGiftCodeInput(txt.trim());
-        setCodeError(validateCode(txt));
+      if (navigator?.clipboard?.readText) {
+        const txt = await navigator.clipboard.readText();
+        if (txt) {
+          setGiftCodeInput(txt.trim());
+          setCodeError(validateCode(txt));
+          return;
+        }
       }
-    } catch {
-
+    } catch (err) {
+      console.warn('Clipboard read failed:', err);
     }
+
+    // Focus the main input so user can long-press -> Paste manually
+    try { codeInputRef.current?.focus(); } catch {}
+    try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Clipboard access unavailable — long-press the code field and Paste.', type: 'info' } })); } catch {}
   }, [validateCode]);
 
   const handleSubmitClaim = useCallback(async () => {
@@ -475,6 +484,18 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
               fullWidth
               placeholder="Gift Code"
               value={giftCodeInput}
+              inputRef={codeInputRef}
+              onPaste={(e: React.ClipboardEvent) => {
+                try {
+                  const txt = e.clipboardData?.getData('text') || '';
+                  if (txt) {
+                    setGiftCodeInput(txt.trim());
+                    setCodeError(validateCode(txt));
+                  }
+                } catch (err) {
+                  console.warn('onPaste handler failed', err);
+                }
+              }}
               onChange={(e) => {
                 setGiftCodeInput(e.target.value);
                 setCodeError(validateCode(e.target.value));
@@ -517,6 +538,8 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
               sx={{
                 mb: 3,
                 '& .MuiOutlinedInput-root': {
+                  position: 'relative',
+                  zIndex: 2,
                   borderRadius: 3,
                   backgroundColor: '#f8f9fa',
                   fontSize: '1.05rem',
@@ -549,7 +572,6 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                 <GiftPreviewCard giftPack={previewGift} onChainStatus={onChainStatus} showAnimation={true} />
               </Box>
             )}
-
             {previewGift && !previewLoading && (() => {
               const nowMs = Date.now();
               const isAlreadyClaimed = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);

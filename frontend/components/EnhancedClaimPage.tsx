@@ -26,6 +26,7 @@ import { ethers } from 'ethers';
 import { useWallet } from '@/context/WalletContext';
 import { useGiftPreview } from '@/hooks/useGiftPacks';
 import { useSubmitClaim, useClaimStatus } from '@/hooks/useClaim';
+import { notifyWallet } from '@/lib/notify';
 
 
 
@@ -122,10 +123,8 @@ export default function EnhancedClaimPage() {
 
   const isAlreadyClaimedPreview = !!(
     giftPreview?.giftPack?.status === 'CLAIMED' ||
-    giftPreview?.giftPack?.claimed ||
     giftPreview?.onChainStatus?.claimed ||
-    giftPreview?.onChainStatus?.status === 'CLAIMED' ||
-    giftPreview?.onChainStatus?.claimer
+    !!giftPreview?.onChainStatus?.recipient
   );
 
   const isExpiredPreview = (() => {
@@ -139,8 +138,7 @@ export default function EnhancedClaimPage() {
   })();
 
   const isRefundedPreview = !!(
-    giftPreview?.giftPack?.status === 'REFUNDED' ||
-    giftPreview?.onChainStatus?.status === 'REFUNDED'
+    giftPreview?.giftPack?.status === 'REFUNDED'
   );
 
   console.log('Gift Preview:', giftPreview);
@@ -201,15 +199,22 @@ export default function EnhancedClaimPage() {
 
   const pasteCodeFromClipboard = async () => {
     try {
-      const txt = await navigator.clipboard.readText();
-      if (txt) {
-        setGiftCodeInput(txt.trim());
-        setCodeError(validateCode(txt));
+      if (navigator?.clipboard?.readText) {
+        const txt = await navigator.clipboard.readText();
+        if (txt) {
+          setGiftCodeInput(txt.trim());
+          setCodeError(validateCode(txt));
+          return;
+        }
       }
-    } catch {
-
+    } catch (err) {
+      console.warn('Clipboard read failed:', err);
     }
-  };
+
+    // Focus the main input so the user can long-press and paste manually
+    try { inputRef.current?.focus(); } catch {}
+    try { (await import('@/lib/notify')).notifyWallet('Clipboard access unavailable — long-press the code field and Paste.', 'info'); } catch {}
+  }; 
 
   const handleSubmitClaim = async () => {
     if (!address) {
@@ -228,14 +233,14 @@ export default function EnhancedClaimPage() {
         if (!parsed || Number.isNaN(parsed)) return;
         const result = await submitClaim.mutateAsync({ giftId: parsed, claimer: address });
         setGiftIdNum(parsed);
-        if (result?.txHash) setClaimTxHash(result.txHash);
+        if (result?.taskId) setClaimTxHash(result.taskId);
       } else {
         const err = validateCode(giftCodeInput);
         setCodeError(err);
         if (err) return;
         const code = giftCodeInput.trim();
         const result = await submitClaim.mutateAsync({ giftCode: code, claimer: address });
-        if (result?.txHash) setClaimTxHash(result.txHash);
+        if (result?.taskId) setClaimTxHash(result.taskId);
       }
       setClaimSubmitted(true);
       setClaimSuccess(true);
@@ -399,6 +404,8 @@ export default function EnhancedClaimPage() {
                   sx={{
                     mb: 3,
                     '& .MuiOutlinedInput-root': {
+                      position: 'relative',
+                      zIndex: 2,
                       borderRadius: 3,
                       '& fieldset': {
                         borderWidth: 2,
@@ -416,6 +423,17 @@ export default function EnhancedClaimPage() {
                   label="Gift Code"
                   value={giftCodeInput}
                   inputRef={mode === 'code' ? inputRef : undefined}
+                  onPaste={(e: React.ClipboardEvent) => {
+                    try {
+                      const txt = e.clipboardData?.getData('text') || '';
+                      if (txt) {
+                        setGiftCodeInput(txt.trim());
+                        setCodeError(validateCode(txt));
+                      }
+                    } catch (err) {
+                      console.warn('onPaste handler failed', err);
+                    }
+                  }}
                   onChange={(e) => {
                     setGiftCodeInput(e.target.value);
                     setCodeError(validateCode(e.target.value));
@@ -448,6 +466,8 @@ export default function EnhancedClaimPage() {
                   sx={{
                     mb: 3,
                     '& .MuiOutlinedInput-root': {
+                      position: 'relative',
+                      zIndex: 2,
                       borderRadius: 3,
                       '& fieldset': {
                         borderWidth: 2,
@@ -459,6 +479,7 @@ export default function EnhancedClaimPage() {
                     }
                   }}
                 />
+
               )}
 
               {/* Wallet Connection Alert */}
@@ -708,8 +729,8 @@ export default function EnhancedClaimPage() {
               {isAlreadyClaimedPreview && (
                 <Alert severity="info" sx={{ mt: 2 }}>
                   This gift has already been claimed on-chain.
-                  {giftPreview?.onChainStatus?.claimer && (
-                    <div style={{ marginTop: 6 }}>Claimed by <code style={{ fontFamily: 'monospace' }}>{giftPreview.onChainStatus.claimer}</code></div>
+                  {giftPreview?.onChainStatus?.recipient && (
+                    <div style={{ marginTop: 6 }}>Claimed by <code style={{ fontFamily: 'monospace' }}>{giftPreview.onChainStatus.recipient}</code></div>
                   )}
                 </Alert>
               )}

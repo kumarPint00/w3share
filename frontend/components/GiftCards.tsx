@@ -90,6 +90,8 @@ function GiftCard({
         <Button
           onClick={handleClick}
           sx={{
+            position: 'relative',
+            zIndex: 3,
             px: 4,
             py: 1.4,
             borderRadius: 999,
@@ -115,12 +117,14 @@ function GiftCard({
       <Box
         sx={{
           position: 'absolute',
+          zIndex: 1,
           bottom: 0,
           right: 0,
           width: '65%',
           height: '70%',
           minWidth: { xs: 180, md: 220 },
           minHeight: { xs: 160, md: 200 },
+          pointerEvents: 'none',
         }}
       >
         <Image

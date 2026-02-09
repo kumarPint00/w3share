@@ -88,6 +88,7 @@ export default function GiftReady() {
             borderRadius: '50%',
             filter: 'blur(80px)',
             opacity: 0.55,
+            pointerEvents: 'none',
           },
           '&:before': {
             width: 420,

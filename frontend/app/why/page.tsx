@@ -15,7 +15,7 @@ export default function WhyPage() {
       <Container maxWidth="md">
         <Paper
           sx={{
-            p: { xs: 4, md: 6 },
+            p: { xs: 4, md: 15 },
             textAlign: 'center',
             borderRadius: 4,
           }}

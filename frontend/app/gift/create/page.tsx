@@ -614,7 +614,7 @@ const CreatePack: React.FC = () => {
       if (lowerError.includes('missing revert data')) {
         errorMessage = 'Smart contract call failed. This usually means: (1) Tokens not approved, (2) Insufficient balance, or (3) Contract issue. Try approving tokens manually in MetaMask first.';
       } else if (lowerError.includes('user denied') || lowerError.includes('user rejected') || lowerError.includes('transaction canceled')) {
-        errorMessage = 'TTransaction canceled. Please generate a new gift code and try again.';
+        errorMessage = 'Transaction canceled. Please generate a new gift code and try again.';
         try { notifyWallet('Signature canceled. Please sign to create your gift pack.', 'warning'); } catch {}
       } else if (lowerError.includes('insufficient')) {
         errorMessage = `${errorMessage} - Make sure you have enough tokens AND enough gas (ETH).`;

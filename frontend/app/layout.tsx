@@ -10,7 +10,7 @@ import QueryProvider from '@/providers/QueryProvider';
 import Navbar from '@/components/Navbar';
 import Footer from '@/components/Footer';
 import WalletEventsListener from '@/components/WalletEventsListener';
-
+import { Box } from '@mui/material';
 const inter = Inter({
   subsets: ['latin'],
   display: 'swap',
@@ -43,10 +43,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <QueryProvider>
               <EscrowProvider>
                 <WalletProvider>
-                  <Navbar />
-                  <WalletEventsListener />
-                  {children}
-                  <Footer />
+                  <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+                    <Navbar />
+                    <WalletEventsListener />
+                    <Box component="main" sx={{ flex: 1 }}>
+                      {children}
+                    </Box>
+                    <Footer />
+                  </Box>
                 </WalletProvider>
               </EscrowProvider>
             </QueryProvider>

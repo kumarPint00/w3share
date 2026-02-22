@@ -13,8 +13,8 @@ const ERC20_ABI = [
 ];
 
 const ESCROW_ABI = [
-  'function lockGiftV2(uint8 assetType, address tokenAddress, uint256 tokenId, uint256 amount, uint256 expiryTimestamp, string calldata message, bytes32 codeHash) external returns (uint256 giftId)',
-  'event GiftLocked(uint256 indexed giftId, address indexed sender, uint8 assetType, address tokenAddress, uint256 tokenId, uint256 amount, uint256 expiryTimestamp)',
+  'function lockGiftV2(uint8 assetType, address tokenAddress, uint256 tokenId, uint256 amount, string calldata message, bytes32 codeHash) external returns (uint256 giftId)',
+  'event GiftLocked(uint256 indexed giftId, address indexed sender, uint8 assetType, address tokenAddress, uint256 tokenId, uint256 amount)',
 ];
 
 const ESCROW_ADDRESS = process.env.NEXT_PUBLIC_GIFT_ESCROW_ADDRESS || null;
@@ -137,7 +137,6 @@ export function useDirectContractInteraction() {
     amount: string,
     message: string,
     giftCode: string,
-    expiryDays: number = 7,
     isEth: boolean = false
   ) => {
     if (!isAvailable()) {
@@ -201,9 +200,6 @@ export function useDirectContractInteraction() {
         amountWei = decimals === 0 ? BigInt(amount) : ethers.parseUnits(amount, decimals);
       }
       
-      // Calculate expiry timestamp
-      const expiryTimestamp = Math.floor(Date.now() / 1000) + (expiryDays * 24 * 60 * 60);
-      
       // Hash the gift code
       const codeHash = ethers.keccak256(ethers.toUtf8Bytes(giftCode));
       
@@ -212,7 +208,6 @@ export function useDirectContractInteraction() {
         tokenAddress: isEth ? '0x0000000000000000000000000000000000000000' : tokenAddress,
         tokenId: 0,
         amount: amountWei.toString(),
-        expiryTimestamp,
         message,
         codeHash,
         isEth,
@@ -226,7 +221,6 @@ export function useDirectContractInteraction() {
             '0x0000000000000000000000000000000000000000',
             0, // tokenId (not used for ETH)
             amountWei,
-            expiryTimestamp,
             message,
             codeHash,
             { value: amountWei } // Pass ETH value as transaction option
@@ -236,7 +230,6 @@ export function useDirectContractInteraction() {
             tokenAddress,
             0, // tokenId (not used for ERC20)
             amountWei,
-            expiryTimestamp,
             message,
             codeHash
           );

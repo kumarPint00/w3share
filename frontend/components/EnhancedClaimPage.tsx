@@ -127,15 +127,7 @@ export default function EnhancedClaimPage() {
     !!giftPreview?.onChainStatus?.recipient
   );
 
-  const isExpiredPreview = (() => {
-    try {
-      if (!giftPreview) return false;
-      const now = Date.now();
-      if (giftPreview.giftPack?.expiry && new Date(giftPreview.giftPack.expiry).getTime() < now) return true;
-      if (giftPreview.onChainStatus?.expiryTimestamp && (giftPreview.onChainStatus.expiryTimestamp * 1000) < now) return true;
-    } catch {}
-    return false;
-  })();
+
 
   const isRefundedPreview = !!(
     giftPreview?.giftPack?.status === 'REFUNDED'
@@ -717,13 +709,12 @@ export default function EnhancedClaimPage() {
                     !address ||
                     submitClaim.isPending ||
                     isAlreadyClaimedPreview ||
-                    isExpiredPreview ||
                     isRefundedPreview
                   }
                   startIcon={submitClaim.isPending ? <CircularProgress size={24} color="inherit" /> : null}
                   size="large"
                 >
-                  {submitClaim.isPending ? 'Submitting...' : isAlreadyClaimedPreview ? 'Gift Already Claimed' : isRefundedPreview ? 'Gift Refunded' : isExpiredPreview ? 'Gift Expired' : '🎁 Claim Gift'}
+                  {submitClaim.isPending ? 'Submitting...' : isAlreadyClaimedPreview ? 'Gift Already Claimed' : isRefundedPreview ? 'Gift Refunded' : '🎁 Claim Gift'}
                 </ClaimButton>
               </Box>
               {isAlreadyClaimedPreview && (
@@ -735,9 +726,9 @@ export default function EnhancedClaimPage() {
                 </Alert>
               )}
 
-              {(isExpiredPreview || isRefundedPreview) && (
+              {isRefundedPreview && (
                 <Alert severity="error" sx={{ mt: 2 }}>
-                  {isRefundedPreview ? 'This gift has been refunded to the sender and is no longer claimable.' : 'This gift has expired and is no longer claimable. The tokens will be refunded to the sender.'}
+                  This gift has been refunded to the sender and is no longer claimable.
                 </Alert>
               )}
             </>

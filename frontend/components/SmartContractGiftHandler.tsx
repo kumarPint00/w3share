@@ -57,7 +57,6 @@ export default function SmartContractGiftHandler({
       const data: CreateGiftPackData = {
         senderAddress: walletAddress,
         message: 'This is a smart contract-backed gift',
-        expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       };
 
       const newGift = await createSmartContractGift.mutateAsync(data);
@@ -80,8 +79,9 @@ export default function SmartContractGiftHandler({
       const result = await finalizeSmartContractGift.mutateAsync({
         id: selectedGiftPack.id,
       });
-      setSelectedGiftPack(result.giftPack);      
-      router.push(`/gift/create/success?giftId=${result.lockResult.giftId}`);      
+      setSelectedGiftPack(result.giftPack);
+      const code = result.giftPack?.giftCode;
+      router.push(code ? `/claim?code=${encodeURIComponent(code)}` : `/gift/create/success`);      
     } catch (error) {
       console.error('Failed to finalize gift:', error);
       const msg = error instanceof Error ? error.message : 'Unknown error';
@@ -130,8 +130,7 @@ export default function SmartContractGiftHandler({
 
   const canLockGift = (giftPack: GiftPack): boolean => {
     return giftPack.status === 'DRAFT' &&
-           giftPack.items.length > 0 &&
-           new Date(giftPack.expiry) > new Date();
+           giftPack.items.length > 0;
   };
 
 
@@ -170,7 +169,6 @@ export default function SmartContractGiftHandler({
               <p>ID: {selectedGiftPack.id}</p>
               <p className="flex items-center gap-2">Status: {getGiftPackStatusDisplay(selectedGiftPack, giftPackWithStatus?.onChainStatus)} {statusLoading && <CircularProgress size={12} />}</p>
               <p>Items: {selectedGiftPack.items.length}</p>
-              <p>Expiry: {new Date(selectedGiftPack.expiry).toLocaleDateString()}</p>
 
               {validationLoading ? (
                 <div className="mt-2 text-sm text-gray-600 flex items-center gap-2"><CircularProgress size={14} /> Validating...</div>
@@ -235,7 +233,6 @@ export default function SmartContractGiftHandler({
                     <p className="text-sm text-gray-600">ID: {giftPack.id}</p>
                     <p className="text-sm">Status: {getGiftPackStatusDisplay(giftPack, onChainStatus)}</p>
                     <p className="text-sm">Items: {giftPack.items.length}</p>
-                    <p className="text-sm">Expiry: {new Date(giftPack.expiry).toLocaleDateString()}</p>
                   </div>
 
                   <div className="text-right">

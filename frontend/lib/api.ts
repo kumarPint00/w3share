@@ -126,7 +126,6 @@ export interface GiftPack {
   id: string;
   senderAddress: string;
   message?: string;
-  expiry: string;
   status: 'DRAFT' | 'LOCKED' | 'CLAIMED' | 'REFUNDED';
   giftIdOnChain?: number;
   items: GiftPackItem[];
@@ -147,13 +146,11 @@ export interface GiftPackItem {
 export interface CreateGiftPackData {
   senderAddress: string;
   message?: string;
-  expiry?: string;
   giftCode?: string;
 }
 
 export interface UpdateGiftPackData {
   message?: string;
-  expiry?: string;
 }
 
 export interface AddItemToGiftPackData {
@@ -203,7 +200,6 @@ export interface SmartContractGiftStatus {
   amount: string;
   sender: string;
   recipient: string;
-  expiryTimestamp: number;
   claimed: boolean;
 }
 
@@ -475,12 +471,8 @@ class ApiService {
       if (onChainStatus.claimed) {
         throw new Error('Gift has already been claimed');
       }
-
-      if (onChainStatus.expiryTimestamp * 1000 < Date.now()) {
-        throw new Error('Gift has expired');
-      }
     } catch (error) {
-      if (error instanceof Error && (error.message === 'Gift has already been claimed' || error.message === 'Gift has expired')) {
+      if (error instanceof Error && error.message === 'Gift has already been claimed') {
         throw error;
       }
 

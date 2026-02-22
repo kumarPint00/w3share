@@ -123,7 +123,6 @@ export default function EnhancedGiftCreationPage() {
   const [currentStep, setCurrentStep] = useState(0);
   const [giftPack, setGiftPack] = useState<GiftPack | null>(null);
   const [giftMessage, setGiftMessage] = useState('');
-  const [expiryDays, setExpiryDays] = useState(7);
   const [selectedAssets, setSelectedAssets] = useState<SelectedAsset[]>([]);
 
 
@@ -182,13 +181,9 @@ export default function EnhancedGiftCreationPage() {
 
     try {
       setError(null);
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + expiryDays);
-
       const data: CreateGiftPackData = {
         senderAddress: address,
         message: giftMessage || undefined,
-        expiry: expiryDate.toISOString(),
       };
 
       const newGift = await createGift.mutateAsync(data);
@@ -287,10 +282,9 @@ export default function EnhancedGiftCreationPage() {
         id: giftPack.id,
       });
 
-      const giftId = result.lockResult.giftId;
       const baseUrl = typeof window !== 'undefined' ? window.location.origin : '';
       const code = result.giftPack?.giftCode || giftPack?.giftCode;
-      const url = code ? `${baseUrl}/claim?code=${encodeURIComponent(code)}` : `${baseUrl}/claim?giftId=${giftId}`;
+      const url = code ? `${baseUrl}/claim?code=${encodeURIComponent(code)}` : `${baseUrl}/gift/create/success`;
 
       setShareUrl(url);
       setGiftPack(result.giftPack);
@@ -419,22 +413,6 @@ export default function EnhancedGiftCreationPage() {
                       />
                     </Grid>
 
-                    <Grid item xs={12} sm={6}>
-                      <FormControl fullWidth>
-                        <InputLabel>Expiry Period</InputLabel>
-                        <Select
-                          value={expiryDays}
-                          onChange={(e) => setExpiryDays(Number(e.target.value))}
-                        >
-                          <MenuItem value={1}>1 Day</MenuItem>
-                          <MenuItem value={7}>1 Week</MenuItem>
-                          <MenuItem value={30}>1 Month</MenuItem>
-                          <MenuItem value={90}>3 Months</MenuItem>
-                          <MenuItem value={365}>1 Year</MenuItem>
-                        </Select>
-                      </FormControl>
-                    </Grid>
-
                     <Grid item xs={12}>
                       <Box textAlign="center" sx={{ mt: 2 }}>
                         <GradientButton
@@ -556,9 +534,6 @@ export default function EnhancedGiftCreationPage() {
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
                     Status: <Chip label={giftPack.status} size="small" />
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                    Expires: {new Date(giftPack.expiry).toLocaleDateString()} 
                   </Typography>
 
                   {giftPack.message && (
@@ -747,7 +722,6 @@ export default function EnhancedGiftCreationPage() {
           <Button onClick={() => {
             setGiftPack(null);
             setGiftMessage('');
-            setExpiryDays(7);
             setSelectedAssets([]);
             setCurrentStep(1);
             setShowAssetDialog(false);

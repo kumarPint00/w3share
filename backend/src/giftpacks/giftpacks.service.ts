@@ -14,7 +14,7 @@ import { CreateGiftpackDto } from './dto/create-giftpack.dto';
 import { UpdateGiftpackDto } from './dto/update-giftpacks.dto';
 import { ConfigService } from '@nestjs/config';
 import { ethers, JsonRpcProvider, Wallet, Contract } from 'ethers';
-import GiftEscrowArtifact from '../claim/gift-escrow.json';
+import GiftEscrowArtifact from '../../contracts/abi/GiftEscrow.json';
 import { GiftPack, GiftItem, Prisma } from '@prisma/client';
 
 @Injectable()
@@ -121,10 +121,8 @@ export class GiftpacksService {
   }
 
   async createDraft(dto: CreateGiftpackDto): Promise<GiftPack> {
-    const expiryDate = new Date(dto.expiry);
     const data: any = {
       message: dto.message,
-      expiry: expiryDate,
       status: 'DRAFT',
       senderAddress: dto.senderAddress,
     };
@@ -223,7 +221,7 @@ export class GiftpacksService {
 
     if (pack.status !== 'DRAFT') errors.push('Please generate a new gift code and try again.');
     if (!pack.items || pack.items.length === 0) errors.push('Gift pack must contain at least one item');
-    if (new Date(pack.expiry) <= new Date()) errors.push('Gift pack expiry must be in the future');
+    // Expiry validation removed
 
     for (const item of pack.items) {
       const raw = String(item.contract || '');
@@ -315,7 +313,6 @@ export class GiftpacksService {
 
     try {
       const escrow: any = this.escrowContract!;
-      const expiryTs = Math.floor(new Date(pack.expiry).getTime() / 1000);
       const codeHash = ethers.keccak256(ethers.toUtf8Bytes(giftCode));
       const message = (pack as any).message || '';
       const escrowAddress = this.getEscrowAddress();
@@ -374,7 +371,6 @@ export class GiftpacksService {
       }
 
       console.log('[GiftEscrow] Generating transaction data for Gift Pack with params:', {
-        expiryTs,
         message,
         codeHash,
         escrowAddress: this.getEscrowAddress(),
@@ -462,7 +458,6 @@ export class GiftpacksService {
 
       // Step 3: Encode the batch transaction
       const batchData = iface.encodeFunctionData('createAndLockGiftBatch', [
-        expiryTs,
         message,
         codeHash,
         approvalCalls,  // Array of {tokenAddress, data}
@@ -592,7 +587,6 @@ export class GiftpacksService {
           tokenId: giftData.tokenId?.toString(),
           amount: giftData.amount?.toString(),
           sender: giftData.sender,
-          expiryTimestamp: Number(giftData.expiryTimestamp),
           claimed: giftData.claimed,
         };
       }
@@ -645,8 +639,6 @@ export class GiftpacksService {
       if (escrow && typeof escrow.getGift === 'function') {
         try {
           const giftData = await escrow.getGift(giftIdOnChain);
-          const expiryTimestamp = Number(giftData.expiryTimestamp);
-          const isExpired = expiryTimestamp > 0 && Date.now() / 1000 > expiryTimestamp;
 
           onChainStatus = {
             giftId: giftIdOnChain,
@@ -654,9 +646,8 @@ export class GiftpacksService {
             tokenId: giftData.tokenId?.toString(),
             amount: giftData.amount?.toString(),
             sender: giftData.sender,
-            expiryTimestamp: expiryTimestamp,
             claimed: giftData.claimed,
-            status: giftData.claimed ? 'CLAIMED' : isExpired ? 'EXPIRED' : 'LOCKED',
+            status: giftData.claimed ? 'CLAIMED' : 'LOCKED',
           };
         } catch (error: any) {
           if (error?.reason?.includes('No gift') || error?.message?.includes('No gift')) {

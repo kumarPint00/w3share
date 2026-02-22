@@ -23,7 +23,6 @@ export interface GiftPackMeta {
   id?: string;
   senderAddress?: string;
   message?: string;
-  expiry?: string; // ISO string from backend
   status?: string;
   giftIdOnChain?: number;
   giftCode?: string;

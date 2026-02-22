@@ -36,7 +36,6 @@ interface GiftPreviewCardProps {
     tokenId?: string;
     amount: string;
     sender: string;
-    expiryTimestamp: number;
     claimed: boolean;
     status: 'LOCKED' | 'CLAIMED' | 'EXPIRED';
     claimer?: string;
@@ -111,7 +110,8 @@ const GiftItemDisplay: React.FC<{ item: GiftItem; index: number , onChainStatus?
           <Box flex={1}>
             {/** Prefer name, then symbol, then contract short */}
             {(() => {
-              const contractShort = item.contract ? `${item.contract.slice(0,6)}...${item.contract.slice(-4)}` : null;
+              const contractAddress = (item as any).contract || (item as any).address || null;
+              const contractShort = contractAddress ? `${contractAddress.slice(0,6)}...${contractAddress.slice(-4)}` : null;
               const displayName = item.name || item.symbol || contractShort || 'Unknown Token';
               return (
                 <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
@@ -168,9 +168,9 @@ export default function GiftPreviewCard({
   const statusInfo = getStatusColor(status);
   const isExpired = status === 'EXPIRED' || status === 'REFUNDED';
   const isClaimed = status === 'CLAIMED';
-  const expiryDate = giftPack.expiry ? new Date(giftPack.expiry) : (giftPack.sealedAt ? new Date(giftPack.sealedAt) : undefined);
-  const isNearExpiry = expiryDate && !isExpired && !isClaimed &&
-    (Date.now() - expiryDate.getTime()) < (24 * 60 * 60 * 1000); // Created within last 24 hours
+  const createdDate = giftPack.sealedAt ? new Date(giftPack.sealedAt) : (giftPack.createdAt ? new Date(giftPack.createdAt) : undefined);
+  const isRecentlyCreated = createdDate && !isExpired && !isClaimed &&
+    (Date.now() - createdDate.getTime()) < (24 * 60 * 60 * 1000); // Created within last 24 hours
   const displayOnChainId = typeof giftPack.giftIdOnChain === 'number' && giftPack.giftIdOnChain > 0 ? giftPack.giftIdOnChain : null;
 
   return (
@@ -201,12 +201,12 @@ export default function GiftPreviewCard({
           <Typography variant="subtitle2" fontWeight={600}>
             Gift Status: {status}
           </Typography>
-          {isNearExpiry && (
+          {isRecentlyCreated && (
             <Chip
-              label="Expires Soon"
+              label="Recently Created"
               size="small"
               sx={{
-                bgcolor: '#ff9800',
+                bgcolor: '#4caf50',
                 color: 'white',
                 ml: 'auto',
               }}
@@ -311,11 +311,11 @@ export default function GiftPreviewCard({
               <Box display="flex" alignItems="center" mb={1}>
                 <TimeIcon sx={{ mr: 1, color: 'text.secondary', fontSize: 18 }} />
                 <Typography variant="body2" fontWeight={500}>
-                  {expiryDate ? 'Expires' : 'Created'}
+                  Created
                 </Typography>
               </Box>
-              <Typography variant="body2" color={isExpired ? 'error.main' : isNearExpiry ? 'warning.main' : 'text.secondary'}>
-                {expiryDate ? expiryDate.toLocaleString() : 'Unknown'} 
+              <Typography variant="body2" color={isExpired ? 'error.main' : isRecentlyCreated ? 'primary.main' : 'text.secondary'}>
+                {createdDate ? createdDate.toLocaleString() : 'Unknown'} 
               </Typography>
             </Grid>
           </Grid>

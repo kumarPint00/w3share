@@ -41,7 +41,6 @@ export default function SmartContractGiftCreator({ walletAddress }: SmartContrac
       const data: CreateGiftPackData = {
         senderAddress: walletAddress,
         message,
-        expiry: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
       };
       const newPack = await createGiftPack.mutateAsync(data);
       setGiftPackId(newPack.id);
@@ -279,7 +278,6 @@ export default function SmartContractGiftCreator({ walletAddress }: SmartContrac
             }</div>
             <div><strong>Token Address:</strong> {onChainStatus.tokenAddress}</div>
             <div><strong>Amount:</strong> {onChainStatus.amount}</div>
-            <div><strong>Expiry:</strong> {new Date(onChainStatus.expiryTimestamp * 1000).toLocaleString()}</div>
             <div><strong>Status:</strong> {onChainStatus.claimed ? 'Claimed' : 'Available for Claim'}</div>
           </div>
         </div>

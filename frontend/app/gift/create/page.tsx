@@ -32,6 +32,8 @@ async function executeBackendTransactions(
   transactions: Array<{ to: string; data: string; value: string; description: string }>,
   giftCode: string
 ) {
+  console.log('[ExecuteTx] Starting transaction execution for gift:', giftCode);
+  
   const eth = (window as any).ethereum;
   if (!eth) {
     throw new Error('MetaMask not installed');
@@ -41,6 +43,8 @@ async function executeBackendTransactions(
   if (!accounts || accounts.length === 0) {
     throw new Error('No wallet connected');
   }
+
+  console.log('[ExecuteTx] Wallet connected:', accounts[0]);
 
   const web3Provider = new ethers.BrowserProvider(eth);
   const signer = await web3Provider.getSigner();
@@ -53,25 +57,56 @@ async function executeBackendTransactions(
   for (let i = 0; i < transactions.length; i++) {
     const tx = transactions[i];
     console.log(`[ExecuteTx] Executing transaction ${i + 1}/${transactions.length}: ${tx.description}`);
+    console.log(`[ExecuteTx] Transaction details:`, { to: tx.to, value: tx.value, dataLength: tx.data.length });
 
-    const txData = {
-      to: tx.to,
-      data: tx.data,
-      value: tx.value === '0' ? '0' : BigInt(tx.value),
-    };
+    try {
+      const txData = {
+        to: tx.to,
+        data: tx.data,
+        value: tx.value === '0' ? '0' : BigInt(tx.value),
+      };
 
-    const txResponse = await signer.sendTransaction(txData);
-    console.log(`[ExecuteTx] Transaction ${i + 1} sent:`, txResponse.hash);
-    transactionHashes.push(txResponse.hash);
+      console.log(`[ExecuteTx] Sending transaction ${i + 1}...`);
+      const txResponse = await signer.sendTransaction(txData);
+      console.log(`[ExecuteTx] Transaction ${i + 1} sent:`, txResponse.hash);
+      transactionHashes.push(txResponse.hash);
 
-    // Wait for transaction to be mined
-    const receipt = await txResponse.wait();
-    if (!receipt) {
-      throw new Error(`Transaction ${i + 1} (${tx.description}) failed to be mined`);
+      // Wait for transaction to be mined with timeout
+      console.log(`[ExecuteTx] Waiting for transaction ${i + 1} to be mined...`);
+      
+      // Add timeout for transaction waiting
+      const receipt = await Promise.race([
+        txResponse.wait(),
+        new Promise<null>((_, reject) => 
+          setTimeout(() => reject(new Error('Transaction wait timeout')), 120000) // 2 minute timeout
+        )
+      ]);
+      
+      if (!receipt) {
+        throw new Error(`Transaction ${i + 1} (${tx.description}) failed to be mined`);
+      }
+      
+      console.log(`[ExecuteTx] Transaction ${i + 1} mined successfully:`, receipt.hash);
+      
+      // Add small delay between transactions to prevent nonce issues
+      if (i < transactions.length - 1) {
+        console.log(`[ExecuteTx] Waiting 2 seconds before next transaction...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+      
+    } catch (error: any) {
+      console.error(`[ExecuteTx] Transaction ${i + 1} failed:`, error);
+      
+      // Check if user canceled
+      if (error?.code === 4001 || error?.message?.toLowerCase().includes('user denied')) {
+        throw new Error('Transaction canceled by user');
+      }
+      
+      throw new Error(`Transaction ${i + 1} failed: ${error.message}`);
     }
-    console.log(`[ExecuteTx] Transaction ${i + 1} mined:`, receipt.hash);
   }
 
+  console.log('[ExecuteTx] All transactions completed successfully');
   return transactionHashes;
 }
 
@@ -197,12 +232,10 @@ const CreatePack: React.FC = () => {
       await ensureAuth('generate');
 
 
-      const expiry = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const newCode = genCode();
       const draft = await apiService.createGiftPack({
         senderAddress: address!,
         message: msg || undefined,
-        expiry,
         giftCode: newCode,
       });
 
@@ -369,7 +402,6 @@ const CreatePack: React.FC = () => {
               amountToUse,
               pack.message || 'A gift for you!',
               code,
-              7,
               true // isEth flag
             );
             
@@ -455,7 +487,6 @@ const CreatePack: React.FC = () => {
               amountToUse,
               pack.message || 'A gift for you!',
               code,
-              7,
               false // not ETH
             );
             
@@ -525,7 +556,18 @@ const CreatePack: React.FC = () => {
               directError.message.includes('Invalid token contract') ||
               directError.message.includes('Token contract error')) {
             console.log('Using backend fallback for problematic tokens');
-            const lockRes = await apiService.lockGiftPack(packId!);
+            
+            console.log('[Fallback] Calling backend lockGiftPack API for packId:', packId);
+            setToast({ open: true, msg: 'Using backend fallback...', severity: 'info' });
+            
+            const lockRes = await Promise.race([
+              apiService.lockGiftPack(packId!),
+              new Promise<never>((_, reject) => 
+                setTimeout(() => reject(new Error('Backend fallback API timeout')), 30000)
+              )
+            ]);
+            
+            console.log('[Fallback] Backend returned, executing transactions...');
             
             // Execute the transactions from user's wallet
             await executeBackendTransactions(lockRes.transactions, lockRes.giftCode);
@@ -566,10 +608,35 @@ const CreatePack: React.FC = () => {
         }
         
         try {
-          const lockRes = await apiService.lockGiftPack(packId!);
+          console.log('[Lock] Calling backend lockGiftPack API for packId:', packId);
+          setToast({ open: true, msg: 'Preparing gift transactions...', severity: 'info' });
+          
+          // Add timeout to backend API call
+          const lockRes = await Promise.race([
+            apiService.lockGiftPack(packId!),
+            new Promise<never>((_, reject) => 
+              setTimeout(() => reject(new Error('Backend API timeout')), 30000) // 30 second timeout
+            )
+          ]);
+          
+          console.log('[Lock] Backend returned transaction data:', {
+            success: lockRes.success,
+            giftCode: lockRes.giftCode,
+            transactionCount: lockRes.transactions.length,
+            transactions: lockRes.transactions.map(tx => ({
+              to: tx.to,
+              value: tx.value,
+              description: tx.description
+            }))
+          });
+          
+          setToast({ open: true, msg: 'Executing transactions...', severity: 'info' });
           
           // Execute the transactions from user's wallet
           await executeBackendTransactions(lockRes.transactions, lockRes.giftCode);
+          
+          console.log('[Lock] All transactions completed, redirecting to success page');
+          setToast({ open: true, msg: 'Gift locked successfully!', severity: 'success' });
           
             // Build success URL with gift code and indicate success toast should be shown on the success page
             const params = new URLSearchParams({ giftCode: lockRes.giftCode, toast: 'locked' });

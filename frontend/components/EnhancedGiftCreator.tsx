@@ -53,7 +53,6 @@ export default function EnhancedGiftCreator({
 }: EnhancedGiftCreatorProps) {
   const [giftPack, setGiftPack] = useState<GiftPack | null>(null);
   const [message, setMessage] = useState('');
-  const [expiryDays, setExpiryDays] = useState(7);
   const [selectedAssets, setSelectedAssets] = useState<SelectedAsset[]>([]);
   const [shouldUseSmartContractBacking, setShouldUseSmartContractBacking] = useState(false);
   const [smartContractRecommendation, setSmartContractRecommendation] = useState<{
@@ -91,13 +90,9 @@ export default function EnhancedGiftCreator({
 
   const handleCreateGift = async () => {
     try {
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + expiryDays);
-
       const data: CreateGiftPackData = {
         senderAddress: walletAddress,
         message: message || undefined,
-        expiry: expiryDate.toISOString(),
       };
 
       let newGift: GiftPack;
@@ -149,7 +144,8 @@ export default function EnhancedGiftCreator({
       });
 
       console.log('Gift finalized:', result);
-      alert(`Gift successfully locked on blockchain! Gift ID: ${result.lockResult.giftId}`);
+      const code = result.giftPack?.giftCode;
+      alert(`Gift successfully locked on blockchain! ${code ? `Gift Code: ${code}` : 'Share with recipients to claim'}`);
 
       if (onGiftCreated) {
         onGiftCreated(result.giftPack);
@@ -232,18 +228,6 @@ export default function EnhancedGiftCreator({
                 placeholder="Enter a message for the recipient..."
                 className="w-full p-3 border rounded-lg resize-none"
                 rows={3}
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Expiry (Days from now)</label>
-              <input
-                type="number"
-                value={expiryDays}
-                onChange={(e) => setExpiryDays(parseInt(e.target.value) || 7)}
-                min="1"
-                max="365"
-                className="w-full p-3 border rounded-lg"
               />
             </div>
 

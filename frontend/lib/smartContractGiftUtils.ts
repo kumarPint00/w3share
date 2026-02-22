@@ -9,19 +9,11 @@ import { GiftPack, SmartContractGiftStatus } from '@/lib/api';
 import { ethers } from 'ethers';
 
 export interface SmartContractGiftConfig {
-
   minValueThreshold: number;
-
   supportedContracts: string[];
-
   maxItemsPerGift: number;
-
-  maxExpiryDays: number;
-
   forceSmartContract: boolean;
-
   wrappedNativeAddress?: string;
-
   nativeTokenPolicy?: 'wrap' | 'allow' | 'disallow';
 }
 
@@ -29,7 +21,6 @@ const defaultConfig: SmartContractGiftConfig = {
   minValueThreshold: 100,
   supportedContracts: [],
   maxItemsPerGift: 10,
-  maxExpiryDays: 365,
   forceSmartContract: false,
   wrappedNativeAddress: undefined,
   nativeTokenPolicy: 'wrap',
@@ -78,17 +69,6 @@ export class SmartContractGiftUtils {
       };
     }
 
-
-    const expiryDays = this.getExpiryDays(giftPack);
-    if (expiryDays > 30) {
-      return {
-        shouldUse: true,
-        reason: 'Long expiry period benefits from smart contract security',
-        isRequired: false,
-      };
-    }
-
-
     if (giftPack.items.length > 3) {
       return {
         shouldUse: true,
@@ -125,15 +105,6 @@ export class SmartContractGiftUtils {
   } {
     const errors: string[] = [];
     const warnings: string[] = [];
-
-
-    const expiryDays = this.getExpiryDays(giftPack);
-    if (expiryDays <= 0) {
-      errors.push('Gift pack has already expired');
-    } else if (expiryDays > this.config.maxExpiryDays) {
-      errors.push(`Expiry exceeds maximum allowed days (${this.config.maxExpiryDays})`);
-    }
-
 
     if (giftPack.items.length === 0) {
       errors.push('Gift pack must contain at least one item');
@@ -269,12 +240,6 @@ export class SmartContractGiftUtils {
       return { canClaim: false, reason: 'Gift has already been claimed' };
     }
 
-    if (onChainStatus.expiryTimestamp * 1000 < Date.now()) {
-      return { canClaim: false, reason: 'Gift has expired' };
-    }
-
-  return { canClaim: true, reason: 'Gift is available for claiming' };
-
     return { canClaim: true, reason: 'Gift is available for claiming' };
   }
 
@@ -305,10 +270,6 @@ export class SmartContractGiftUtils {
       return { status: 'Claimed', color: 'green', description: 'Gift has been successfully claimed' };
     }
 
-    if (onChainStatus.expiryTimestamp * 1000 < Date.now()) {
-      return { status: 'Expired', color: 'red', description: 'Gift has expired and can be refunded' };
-    }
-
     return { status: 'Available', color: 'blue', description: 'Gift is available for claiming' };
   }
 
@@ -328,12 +289,6 @@ export class SmartContractGiftUtils {
 
       return item.type === 'ERC721';
     });
-  }
-
-  private getExpiryDays(giftPack: GiftPack): number {
-    const expiryTime = new Date(giftPack.expiry).getTime();
-    const currentTime = Date.now();
-    return Math.ceil((expiryTime - currentTime) / (1000 * 60 * 60 * 24));
   }
 }
 

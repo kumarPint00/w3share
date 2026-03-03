@@ -18,7 +18,7 @@
     "symbol": "USDT",
     "name": "Tether",
     "decimals": 6,
-    "image": "/usdt.png"
+    "image": "/tokens/tether-usdt-logo.png"
   },
   {
     "contract": "0x779877a7b0d9e8603169ddbd7836e478b462478b",
@@ -47,5 +47,26 @@
     "name": "Wrapped Ether",
     "decimals": 18,
     "image": "/tokens/ethereum-eth-logo.png"
+  },
+  {
+    "contract": "0x6b175474e89094c44da98b954eedeac495271d0f",
+    "symbol": "DAI",
+    "name": "Dai Stablecoin",
+    "decimals": 18,
+    "image": "/tokens/dai-dai-logo.png"
+  },
+  {
+    "contract": "0x6982508145454ce894dddd4b2b1236feab2a32879",
+    "symbol": "PEPE",
+    "name": "Pepe",
+    "decimals": 18,
+    "image": "/tokens/pepe-pepe-logo.png"
+  },
+  {
+    "contract": "0x1f9840a85d5af5bf1d1762f925bdaddc4201f984",
+    "symbol": "UNI",
+    "name": "Uniswap",
+    "decimals": 18,
+    "image": "/tokens/uniswap-uni-logo.png"
   }
 ]

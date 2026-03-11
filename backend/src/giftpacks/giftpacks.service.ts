@@ -43,7 +43,7 @@ export class GiftpacksService {
         this.isSmartContractEnabled = true;
         return;
       }
-      const rpcUrl = this.config.get<string>('SEPOLIA_BASE_RPC');
+      const rpcUrl = this.config.get<string>('MAINNET_RPC') || this.config.get<string>('SEPOLIA_BASE_RPC');
       const privateKey = this.config.get<string>('DEPLOYER_PRIVATE_KEY');
       const escrowAddress = this.config.get<string>('GIFT_ESCROW_ADDRESS');
 

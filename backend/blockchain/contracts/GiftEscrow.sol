@@ -41,6 +41,16 @@ contract GiftEscrow is IERC721Receiver, ReentrancyGuard {
         uint256 amount;
     }
 
+    /**
+     * @notice Pending claim commitment (commit-reveal MEV protection)
+     * @dev value = keccak256(abi.encodePacked(claimer, code, nonce))
+     */
+    struct Commitment {
+        bytes32 value;
+        uint256 blockNumber;
+        address claimer;
+    }
+
     mapping(bytes32 => GiftPack) public giftPacks;
     mapping(bytes32 => Asset[]) private giftPackAssets;
     mapping(bytes32 => bool) public codeHashExists;
@@ -48,6 +58,14 @@ contract GiftEscrow is IERC721Receiver, ReentrancyGuard {
     
     bytes32[] public allCodeHashes;
     uint256 public nextGiftId = 1;
+
+    /// @notice Pending commit-reveal commitments: codeHash => Commitment
+    mapping(bytes32 => Commitment) public claimCommitments;
+
+    /// @notice Minimum number of blocks that must pass between commit and reveal
+    uint256 public constant COMMIT_REVEAL_DELAY = 1;
+    /// @notice Maximum number of blocks before a commitment expires (~50 min on Sepolia)
+    uint256 public constant COMMIT_EXPIRE_BLOCKS = 250;
 
     event GiftPackLocked(
         bytes32 indexed codeHash,
@@ -62,6 +80,17 @@ contract GiftEscrow is IERC721Receiver, ReentrancyGuard {
     );
 
     event GiftPackClaimed(
+        bytes32 indexed codeHash,
+        address indexed claimer
+    );
+
+    event ClaimCommitted(
+        bytes32 indexed codeHash,
+        address indexed claimer,
+        uint256 blockNumber
+    );
+
+    event CommitmentWithdrawn(
         bytes32 indexed codeHash,
         address indexed claimer
     );
@@ -162,21 +191,64 @@ contract GiftEscrow is IERC721Receiver, ReentrancyGuard {
     }
 
     /**
-     * @notice Claim gift pack with code verification
+     * @notice Phase 1 of MEV-resistant claiming: commit a blinded intention to claim.
+     * @dev commitment = keccak256(abi.encodePacked(msg.sender, code, nonce))
+     *      The code and nonce are never revealed on-chain at this stage.
      */
-    function claimGiftPackWithCode(bytes32 codeHash, string calldata code) external nonReentrant {
+    function commitClaim(bytes32 codeHash, bytes32 commitment) external {
         require(codeHashExists[codeHash], "Gift pack not found");
-        require(keccak256(abi.encodePacked(code)) == codeHash, "Invalid code");
-        
         GiftPack storage pack = giftPacks[codeHash];
         require(!pack.claimed, "Already claimed");
 
+        Commitment storage existing = claimCommitments[codeHash];
+        // Allow the same claimer to re-commit (e.g. commitment expired); block others
+        require(
+            existing.claimer == address(0) || existing.claimer == msg.sender,
+            "Another claim in progress"
+        );
+
+        claimCommitments[codeHash] = Commitment({
+            value: commitment,
+            blockNumber: block.number,
+            claimer: msg.sender
+        });
+
+        emit ClaimCommitted(codeHash, msg.sender, block.number);
+    }
+
+    /**
+     * @notice Phase 2 of MEV-resistant claiming: reveal the code and collect assets.
+     * @dev Must be called at least COMMIT_REVEAL_DELAY blocks after commitClaim.
+     *      The commitment binds msg.sender so front-running the reveal is impossible.
+     */
+    function revealAndClaim(bytes32 codeHash, string calldata code, bytes32 nonce) external nonReentrant {
+        require(codeHashExists[codeHash], "Gift pack not found");
+        GiftPack storage pack = giftPacks[codeHash];
+        require(!pack.claimed, "Already claimed");
+
+        Commitment storage commit = claimCommitments[codeHash];
+        require(commit.claimer == msg.sender, "No commitment for caller");
+        require(
+            block.number >= commit.blockNumber + COMMIT_REVEAL_DELAY,
+            "Too early: wait for next block"
+        );
+        require(
+            block.number <= commit.blockNumber + COMMIT_EXPIRE_BLOCKS,
+            "Commitment expired: please re-commit"
+        );
+        require(
+            commit.value == keccak256(abi.encodePacked(msg.sender, code, nonce)),
+            "Invalid commitment"
+        );
+        require(keccak256(abi.encodePacked(code)) == codeHash, "Invalid code");
+
         pack.claimed = true;
+        delete claimCommitments[codeHash];
 
         Asset[] storage assets = giftPackAssets[codeHash];
         for (uint256 i = 0; i < assets.length; i++) {
             Asset storage asset = assets[i];
-            
+
             if (asset.assetType == AssetType.ERC721) {
                 IERC721(asset.tokenAddress).safeTransferFrom(
                     address(this),
@@ -192,6 +264,16 @@ contract GiftEscrow is IERC721Receiver, ReentrancyGuard {
         }
 
         emit GiftPackClaimed(codeHash, msg.sender);
+    }
+
+    /**
+     * @notice Cancel a pending commitment (allows the claimer to retry with a fresh nonce).
+     */
+    function withdrawCommitment(bytes32 codeHash) external {
+        Commitment storage commit = claimCommitments[codeHash];
+        require(commit.claimer == msg.sender, "No commitment for caller");
+        delete claimCommitments[codeHash];
+        emit CommitmentWithdrawn(codeHash, msg.sender);
     }
 
     /**

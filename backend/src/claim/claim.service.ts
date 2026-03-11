@@ -29,10 +29,10 @@ export class ClaimService {
 
   private initializeClaimingService() {
     try {
-      const rpcUrl = this.config.get<string>('SEPOLIA_BASE_RPC');
+      const rpcUrl = this.config.get<string>('MAINNET_RPC') || this.config.get<string>('SEPOLIA_BASE_RPC');
       const apiKey = this.config.get<string>('GELATO_API_KEY');
       const escrowAddr = this.config.get<string>('GIFT_ESCROW_ADDRESS');
-      const chainIdStr = this.config.get<string>('SEPOLIA_CHAIN_ID') || '11155111';
+      const chainIdStr = this.config.get<string>('GIFT_ESCROW_CHAIN_ID') || this.config.get<string>('SEPOLIA_CHAIN_ID') || '1';
 
       try {
         this.chainId = BigInt(chainIdStr);
@@ -47,7 +47,7 @@ export class ClaimService {
           'Claim service configuration incomplete. Smart contract claiming will be disabled.',
         );
         console.warn('To enable claiming, please configure:');
-        console.warn('- SEPOLIA_BASE_RPC: Valid RPC URL');
+        console.warn('- MAINNET_RPC: Valid RPC URL');
         console.warn('- GELATO_API_KEY: Valid Gelato API key');
         console.warn('- GIFT_ESCROW_ADDRESS: Valid contract address');
         return;
@@ -134,44 +134,11 @@ export class ClaimService {
     const giftCode = pack.giftCode ? String(pack.giftCode).trim() : '';
     const useCodePath = giftCode.length > 0;
 
-    // Use the new GiftPack model which stores all assets in a single pack
-    // identified by code hash instead of individual gift IDs
+    // Code-based path: use commit-reveal scheme
     if (useCodePath) {
-      const iface = new ethers.Interface(GiftEscrowArtifact.abi);
-      const codeHash = ethers.keccak256(ethers.toUtf8Bytes(giftCode));
-      const data = iface.encodeFunctionData('claimGiftPackWithCode', [codeHash, giftCode]);
-
-      const unwrapInfo = this.getUnwrapInfo(pack);
-
-      return {
-        contract: this.escrowAddress!,
-        abi: GiftEscrowArtifact.abi,
-        function: 'claimGiftPackWithCode',
-        args: [codeHash, giftCode],
-        data,
-        chainId: this.chainId.toString(),
-        message: pack.items.length > 1 
-          ? `This gift contains ${pack.items.length} tokens. Claim them all in one transaction.`
-          : 'Call this contract method from your wallet to claim.',
-        unwrapInfo,
-      };
+      return this.buildCommitData(giftCode, claimer, ethers.hexlify(ethers.randomBytes(32)));
     } else {
-      // Non-code path (shouldn't be used with new model, but kept for compatibility)
-      const iface = new ethers.Interface(GiftEscrowArtifact.abi);
-      const data = iface.encodeFunctionData('claimGift', [giftId]);
-
-      const unwrapInfo = this.getUnwrapInfo(pack);
-
-      return {
-        contract: this.escrowAddress!,
-        abi: GiftEscrowArtifact.abi,
-        function: 'claimGift',
-        args: [giftId],
-        data,
-        chainId: this.chainId.toString(),
-        message: 'Call this contract method from your wallet to claim.',
-        unwrapInfo,
-      };
+      throw new BadRequestException({ message: 'giftCode is required for claiming' });
     }
   }
 
@@ -203,9 +170,10 @@ export class ClaimService {
 
     const code = (giftCode || '').trim();
     if (!code) {
-      throw new BadRequestException({
-        message: 'giftCode is required',
-      });
+      throw new BadRequestException({ message: 'giftCode is required' });
+    }
+    if (!claimer || !ethers.isAddress(claimer)) {
+      throw new BadRequestException({ message: 'valid claimer address is required' });
     }
 
     const pack = await this.prisma.giftPack.findFirst({
@@ -218,24 +186,91 @@ export class ClaimService {
       });
     }
 
-    // With the new GiftPack model, we use code hash instead of sequential IDs
-    const iface = new ethers.Interface(GiftEscrowArtifact.abi);
-    const codeHash = ethers.keccak256(ethers.toUtf8Bytes(code));
-    const data = iface.encodeFunctionData('claimGiftPackWithCode', [codeHash, code]);
+    // Phase 1 – return commit calldata. The frontend supplies the nonce and
+    // computes the commitment client-side; we just encode the calldata.
+    // nonce is supplied by the caller via buildCommitData; this endpoint is
+    // kept for backward compat but now delegates to buildCommitData.
+    // (The frontend should call POST /claim/commit directly for the full flow.)
+    return this.buildCommitData(code, claimer, ethers.hexlify(ethers.randomBytes(32)));
+  }
 
-    const unwrapInfo = this.getUnwrapInfo(pack);
+  /**
+   * Build commit-phase calldata for the commit-reveal MEV protection scheme.
+   * commitment = keccak256(abi.encodePacked(claimer, code, nonce))
+   */
+  async buildCommitData(giftCode: string, claimer: string, nonce: string) {
+    this.throwIfClaimingDisabled('buildCommitData');
+
+    const code = (giftCode || '').trim();
+    if (!code) throw new BadRequestException({ message: 'giftCode is required' });
+    if (!claimer || !ethers.isAddress(claimer)) {
+      throw new BadRequestException({ message: 'valid claimer address is required' });
+    }
+    if (!nonce || !/^0x[0-9a-fA-F]{64}$/.test(nonce)) {
+      throw new BadRequestException({ message: 'nonce must be a 0x-prefixed 32-byte hex string' });
+    }
+
+    const pack = await this.prisma.giftPack.findFirst({
+      where: { giftCode: code },
+      include: { items: true },
+    });
+    if (!pack || pack.status !== 'LOCKED') {
+      throw new NotFoundException({ message: 'Gift not lockable or already claimed/refunded' });
+    }
+
+    const codeHash = ethers.keccak256(ethers.toUtf8Bytes(code));
+    const commitment = ethers.solidityPackedKeccak256(
+      ['address', 'string', 'bytes32'],
+      [claimer, code, nonce],
+    );
+
+    const iface = new ethers.Interface(GiftEscrowArtifact.abi);
+    const data = iface.encodeFunctionData('commitClaim', [codeHash, commitment]);
 
     return {
       contract: this.escrowAddress!,
-      abi: GiftEscrowArtifact.abi,
-      function: 'claimGiftPackWithCode',
-      args: [codeHash, code],
+      function: 'commitClaim',
+      args: [codeHash, commitment],
       data,
       chainId: this.chainId.toString(),
-      message: pack.items.length > 1 
-        ? `This gift contains ${pack.items.length} tokens. Claim them all in one transaction.`
-        : 'Call this contract method from your wallet to claim.',
-      unwrapInfo,
+      commitRevealDelay: 1,
+      message: 'Step 1 of 2: Reserve your claim. Sign this transaction to commit.',
+    };
+  }
+
+  /**
+   * Build reveal-phase calldata for the commit-reveal MEV protection scheme.
+   * The nonce must match the one used when committing.
+   */
+  async buildRevealData(giftCode: string, nonce: string) {
+    this.throwIfClaimingDisabled('buildRevealData');
+
+    const code = (giftCode || '').trim();
+    if (!code) throw new BadRequestException({ message: 'giftCode is required' });
+    if (!nonce || !/^0x[0-9a-fA-F]{64}$/.test(nonce)) {
+      throw new BadRequestException({ message: 'nonce must be a 0x-prefixed 32-byte hex string' });
+    }
+
+    const pack = await this.prisma.giftPack.findFirst({
+      where: { giftCode: code },
+      include: { items: true },
+    });
+    if (!pack) throw new NotFoundException({ message: 'Gift not found' });
+    if (pack.status === 'CLAIMED') throw new BadRequestException({ message: 'Gift already claimed' });
+
+    const codeHash = ethers.keccak256(ethers.toUtf8Bytes(code));
+    const iface = new ethers.Interface(GiftEscrowArtifact.abi);
+    const data = iface.encodeFunctionData('revealAndClaim', [codeHash, code, nonce]);
+
+    return {
+      contract: this.escrowAddress!,
+      function: 'revealAndClaim',
+      args: [codeHash, code, nonce],
+      data,
+      chainId: this.chainId.toString(),
+      message: pack.items.length > 1
+        ? `Step 2 of 2: Claim ${pack.items.length} tokens in one transaction.`
+        : 'Step 2 of 2: Complete your claim.',
     };
   }
 

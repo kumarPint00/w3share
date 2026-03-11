@@ -18,6 +18,12 @@ interface WalletCtx {
   clearConnectionRejection: () => void;
 }
 
+/** Detect MetaMask / extension-internal failures (selectExtension, installHook, evmAsk, etc.) */
+const looksLikeExtensionInternal = (e: any) => {
+  const m = String(e?.message || e || '').toLowerCase();
+  return /selectextension|installhook|unexpected error|^me:/i.test(m);
+};
+
 /* default stub */
 const Ctx = createContext<WalletCtx>({
   provider: null,
@@ -37,12 +43,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const onChainChanged = useRef<((chainId: string) => void) | null>(null);
   
   const connect = async () => {
-    // helper to detect provider/extension internal failures (installHook/selectExtension/evmAsk)
-    const looksLikeExtensionInternal = (e: any) => {
-      const m = String(e?.message || e || '').toLowerCase();
-      return /selectextension|installhook|unexpected error|^me:/i.test(m);
-    };
-
     try {
       console.log('[WalletContext] Starting wallet connection...');
       setConnectionRejected(false);  // Clear rejection state on new attempt
@@ -247,6 +247,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setProv(null);
     rawProvRef.current = null;
   };
+
+  /* Suppress MetaMask/extension unhandled rejections (selectExtension, installHook, etc.)
+     that can bubble up to Next.js's error overlay during extension initialisation */
+  useEffect(() => {
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const msg = String(event?.reason?.message || event?.reason || '').toLowerCase();
+      if (/selectextension|installhook|unexpected error|^me:/i.test(msg)) {
+        event.preventDefault();
+        console.warn('[WalletContext] Suppressed extension-internal unhandled rejection:', event.reason);
+      }
+    };
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    return () => window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+  }, []);
 
   /* auto-connect if already authorised */
   useEffect(() => {

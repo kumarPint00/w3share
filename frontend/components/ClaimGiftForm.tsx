@@ -69,6 +69,13 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
   const [onChainStatus, setOnChainStatus] = useState<any | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
 
+  // Commit-reveal MEV-protection state
+  type ClaimStage = 'idle' | 'committing' | 'waiting' | 'revealing' | 'done';
+  const [claimStage, setClaimStage] = useState<ClaimStage>('idle');
+  const [claimNonce, setClaimNonce] = useState<string | null>(null);
+  const [commitBlockNumber, setCommitBlockNumber] = useState<number | null>(null);
+  const [currentBlock, setCurrentBlock] = useState<number | null>(null);
+
   useEffect(() => {
     const code = giftCodeInput.trim();
     if (!code) { setPreviewGift(null); setOnChainStatus(null); return; }
@@ -218,6 +225,24 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
   }, [giftCodeInput]);
 
 
+  // Poll current block number every 4 s while waiting to reveal
+  useEffect(() => {
+    if (claimStage !== 'waiting') return;
+    let cancelled = false;
+    const pollBlock = async () => {
+      try {
+        const eth = (window as any).ethereum;
+        if (!eth) return;
+        const p = new ethers.BrowserProvider(eth);
+        const n = await p.getBlockNumber();
+        if (!cancelled) setCurrentBlock(n);
+      } catch {}
+    };
+    pollBlock();
+    const id = setInterval(pollBlock, 4000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [claimStage]);
+
   const validateCode = useCallback((v: string) => {
     if (!v.trim()) return 'Enter your gift code';
     return null;
@@ -245,8 +270,64 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
   }, [validateCode]);
 
   const handleSubmitClaim = useCallback(async () => {
-    let executedTxHashes: string[] = [];
     setTxError(null);
+
+    // ── REVEAL PHASE ─────────────────────────────────────────────────────────
+    if (claimStage === 'waiting') {
+      if (!claimNonce || !walletAddress) return;
+      const blocksConfirmed = (currentBlock ?? 0) - (commitBlockNumber ?? 0);
+      if (blocksConfirmed < 1) {
+        try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Please wait for the next Sepolia block (~12 s) before revealing.', type: 'info' } })); } catch {}
+        return;
+      }
+      setIsPending(true);
+      setClaimStage('revealing');
+      try {
+        const code = giftCodeInput.trim();
+        const revealData = await apiService.buildReveal({ giftCode: code, nonce: claimNonce });
+        interface EthereumWindow extends Window { ethereum?: any }
+        const eth = (window as EthereumWindow).ethereum;
+        if (!eth) throw new Error('MetaMask not found');
+        const provider = new ethers.BrowserProvider(eth);
+        const signer = await provider.getSigner();
+        const tx = await signer.sendTransaction({ to: revealData.contract, data: revealData.data });
+        setTxHash(tx.hash);
+        setTxHashes([tx.hash]);
+        await tx.wait();
+        setClaimStage('done');
+        setSuccess(true);
+        try { await apiService.confirmClaimComplete({ giftCode: code, txHash: tx.hash, claimer: walletAddress }); } catch {}
+        if (onClaimSuccess) {
+          try {
+            const giftDetails = await getGiftPackDetails({ giftCode: code });
+            onClaimSuccess({ message: giftDetails?.message, items: giftDetails?.items || [] });
+          } catch { onClaimSuccess({}); }
+        }
+      } catch (error: any) {
+        setClaimStage('waiting');
+        const rawMsg = (error?.message || error?.reason || '').toString();
+        const lowerMsg = rawMsg.toLowerCase();
+        if (lowerMsg.includes('user denied') || lowerMsg.includes('user rejected') || lowerMsg.includes('transaction canceled') || lowerMsg.includes('user cancelled') || lowerMsg.includes('user canceled')) {
+          try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Transaction canceled. You can try again.', type: 'warning' } })); } catch {}
+        } else if (lowerMsg.includes('no commitment for caller')) {
+          setTxError('Reservation not found on-chain — it may have expired. Click "Start New Claim" to begin again.');
+        } else if (lowerMsg.includes('too early')) {
+          setTxError('Please wait for the next Sepolia block (~12 s) before completing your claim.');
+        } else if (lowerMsg.includes('commitment expired')) {
+          setTxError('Your reservation expired (>250 blocks). Click "Start New Claim" to begin again.');
+        } else if (lowerMsg.includes('invalid commitment')) {
+          setTxError('Commitment mismatch — please click "Start New Claim" and try again with the same wallet.');
+        } else {
+          setTxError(rawMsg || 'Reveal failed. Please try again.');
+        }
+      } finally {
+        setIsPending(false);
+        setClaimProgress(null);
+      }
+      return;
+    }
+
+    // ── COMMIT PHASE ─────────────────────────────────────────────────────────
     setSuccess(false);
     setTxHash(null);
     setTxHashes([]);
@@ -255,187 +336,53 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
     const validationError = validateCode(giftCodeInput);
     setCodeError(validationError);
     if (validationError) return;
-    // Prevent attempting to claim if preview indicates it's already claimed or refunded
     const isAlreadyClaimedNow = !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
     const isRefundedNow = previewGift?.status === 'REFUNDED' || onChainStatus?.status === 'REFUNDED';
+    if (isAlreadyClaimedNow) { setTxError('This gift has already been claimed.'); return; }
+    if (isRefundedNow) { setTxError('This gift has been refunded and is no longer claimable.'); return; }
 
-    if (isAlreadyClaimedNow) {
-      setTxError('This gift has already been claimed. See details above.');
-      return;
-    }
-
-    if (isRefundedNow) {
-      setTxError('This gift has been refunded and is no longer claimable.');
-      return;
-    }
     setIsPending(true);
+    setClaimStage('committing');
     try {
-
       const code = giftCodeInput.trim();
-      const claimData = await apiService.submitClaim({ giftCode: code, claimer: walletAddress });
-
+      // Generate nonce entirely client-side — never sent to backend until reveal
+      const nonce = ethers.hexlify(ethers.randomBytes(32));
+      const commitData = await apiService.buildCommit({ giftCode: code, claimer: walletAddress, nonce });
       interface EthereumWindow extends Window { ethereum?: any }
       const eth = (window as EthereumWindow).ethereum;
       if (!eth) throw new Error('MetaMask not found');
       const provider = new ethers.BrowserProvider(eth);
       const signer = await provider.getSigner();
-      const anyClaim: any = claimData as any; // relax type to allow contract/data
-
-      // Handle multi-token claim responses
-      if (anyClaim.isMultiToken && Array.isArray(anyClaim.claimTransactions)) {
-        const _txHashes: string[] = [];
-        const txs = anyClaim.claimTransactions;
-
-        // If backend provided a single batched claim (and contract supports it), prefer that
-        if (anyClaim.batchClaim && anyClaim.batchClaim.data && anyClaim.batchClaim.contract) {
-          // Warn user if batch size is large
-          const batchSize = Array.isArray(anyClaim.batchClaim.giftIds) ? anyClaim.batchClaim.giftIds.length : 0;
-          if (batchSize > 4) {
-            const ok = window.confirm(`This gift contains ${batchSize} tokens and will be claimed in a single transaction. This may be expensive in gas. Continue?`);
-            if (!ok) {
-              // Treat manual confirmation cancellation as a transaction cancel so the UI shows a single wallet toast
-              // and does not surface inline errors or the "Start New Claim" button.
-              throw new Error('Transaction canceled');
-            }
-          }
-          setClaimProgress({ current: 0, total: 1, name: 'Batch claim', status: 'in-progress' });
-          try {
-            const c = anyClaim.batchClaim;
-            const tx = await signer.sendTransaction({ to: c.contract, data: c.data });
-            _txHashes.push(tx.hash);
-            setTxHash(tx.hash);
-            await tx.wait();
-            setClaimProgress({ current: 1, total: 1, name: 'Batch claim', status: 'done' });
-            setSuccess(true);
-              // Notify backend that claim was completed
-              try {
-                await apiService.confirmClaimComplete({ giftCode: code, txHash: tx.hash, claimer: walletAddress });
-              } catch (err) {
-                console.warn('Failed to notify backend about claim completion:', err);
-              }
-          } catch (err: any) {
-            setClaimProgress({ current: 1, total: 1, name: 'Batch claim', status: 'failed' });
-            setTxError(err?.message || 'Batch claim failed');
-            throw err;
-          } finally {
-            setClaimProgress(null);
-            if (_txHashes.length > 0) {
-              const recorded = [..._txHashes];
-              setTxHashes(recorded);
-              executedTxHashes = recorded;
-            }
-          }
-        } else {
-          setClaimProgress({ current: 0, total: txs.length, name: undefined, status: 'in-progress' });
-          for (let i = 0; i < txs.length; i++) {
-            const c = txs[i];
-            // Try to resolve a friendly name for the item: use previewGift items if lengths match
-            let friendlyName: string | undefined = undefined;
-            try {
-              if (previewGift?.items && previewGift.items.length === txs.length) {
-                const it = previewGift.items[i];
-                friendlyName = it?.name || it?.symbol || (it?.contract ? `${it.contract.slice(0,6)}...${it.contract.slice(-4)}` : undefined);
-              }
-            } catch {}
-            setClaimProgress({ current: i + 1, total: txs.length, name: friendlyName, status: 'in-progress' });
-            try {
-              const tx = await signer.sendTransaction({ to: c.contract, data: c.data });
-              _txHashes.push(tx.hash);
-              setTxHash(tx.hash);
-              setTxError(null);
-              // wait for confirmation before proceeding to next
-                await tx.wait();
-              // update progress
-              setClaimProgress({ current: i + 1, total: txs.length, name: friendlyName, status: 'done' });
-            } catch (err: any) {
-              setClaimProgress({ current: i + 1, total: txs.length, name: friendlyName, status: 'failed' });
-              setTxError(err?.message || `Failed to submit claim for giftId ${c.giftId}`);
-              // stop processing further transactions on error
-              throw err;
-            }
-          }
-          const recordedTxHashes = [..._txHashes];
-          setTxHashes(recordedTxHashes);
-          executedTxHashes = recordedTxHashes;
-          // Mark success only if all txs succeeded
-          if (_txHashes.length === anyClaim.claimTransactions.length) {
-            setSuccess(true);
-              // Notify backend about the successful claim (use first tx hash as reference)
-              try {
-                if (recordedTxHashes.length > 0) {
-                  await apiService.confirmClaimComplete({ giftCode: code, txHash: recordedTxHashes[0], claimer: walletAddress });
-                }
-              } catch (err) {
-                console.warn('Failed to notify backend about claim completion:', err);
-              }
-          }
-          setClaimProgress(null);
-        }
-      } else {
-        const tx = await signer.sendTransaction({
-          to: anyClaim.contract,
-          data: anyClaim.data,
-        });
-        setTxHash(tx.hash);
-        const recordedTxHashes = [tx.hash];
-        setTxHashes(recordedTxHashes);
-        executedTxHashes = recordedTxHashes;
-        await tx.wait();
-        setSuccess(true);
-        try {
-          await apiService.confirmClaimComplete({ giftCode: code, txHash: tx.hash, claimer: walletAddress });
-        } catch (err) {
-          console.warn('Failed to notify backend about claim completion:', err);
-        }
-      }
-
-      if (onClaimSuccess) {
-        try {
-          const giftDetails = await getGiftPackDetails({ giftCode: code });
-          onClaimSuccess({
-            message: giftDetails?.message,
-            items: giftDetails?.items || [],
-          });
-        } catch (e) {
-          onClaimSuccess({});
-        }
-      }
+      const tx = await signer.sendTransaction({ to: commitData.contract, data: commitData.data });
+      setTxHash(tx.hash);
+      const receipt = await tx.wait();
+      setClaimNonce(nonce);
+      setCommitBlockNumber(receipt!.blockNumber);
+      setCurrentBlock(receipt!.blockNumber);
+      setClaimStage('waiting');
     } catch (error: any) {
-      // Save raw error for developer diagnostics
       setTxRawError(error);
-
+      setClaimStage('idle');
       const rawMsg = (error?.message || error?.reason || (typeof error === 'string' ? error : '') || '').toString();
       const lowerMsg = rawMsg.toLowerCase();
-
-      // Map common on-chain errors to friendly messages
-      if (
-        lowerMsg.includes('user denied') ||
-        lowerMsg.includes('user rejected') ||
-        lowerMsg.includes('transaction canceled') ||
-        lowerMsg.includes('user cancelled') ||
-        lowerMsg.includes('user canceled')
-      ) {
-        // Use a single bottom-left toast for cancellation and do not show the inline error or Start New Claim button
+      if (lowerMsg.includes('user denied') || lowerMsg.includes('user rejected') || lowerMsg.includes('transaction canceled') || lowerMsg.includes('user cancelled') || lowerMsg.includes('user canceled')) {
         try { window.dispatchEvent(new CustomEvent('wallet:notification', { detail: { message: 'Transaction canceled. Your gift is still claimable. You can try again.', type: 'warning' } })); } catch {}
         setTxError(null);
         setTxRawError(null);
-        setShowErrorDetails(false);
-        return;
-      } else if (lowerMsg.includes('gift pack not found') || lowerMsg.includes('no gift') || lowerMsg.includes('gift not found')) {
-        setTxError('On-chain error: gift not found. This usually means the gift was already CLAIMED, never locked on-chain or the on-chain ID is invalid. Confirm the gift code or ask the sender to retry locking it.');
-        
+      } else if (lowerMsg.includes('another claim in progress')) {
+        setTxError('Another wallet already has a pending reservation. Please wait a few minutes and try again.');
+      } else if (lowerMsg.includes('gift pack not found') || lowerMsg.includes('gift not lockable')) {
+        setTxError('Gift not found or not yet locked on-chain. Confirm the code with the sender.');
       } else if (lowerMsg.includes('insufficient') && lowerMsg.includes('funds')) {
-        setTxError('Insufficient funds to complete the transaction. Make sure you have enough ETH for gas and try again.');
-      } else if (lowerMsg.includes('call_exception') || lowerMsg.includes('execution reverted') || lowerMsg.includes('revert')) {
-        setTxError('On-chain call failed. The contract rejected the operation — check that the gift is properly locked on-chain and try again.');
+        setTxError('Insufficient ETH for gas. Add some Sepolia ETH and try again.');
       } else {
-        setTxError(error?.message || 'Failed to submit claim.');
+        setTxError(rawMsg || 'Failed to reserve claim. Please try again.');
       }
     } finally {
       setIsPending(false);
       setClaimProgress(null);
     }
-  }, [walletAddress, giftCodeInput, validateCode, onClaimSuccess]);
+  }, [walletAddress, giftCodeInput, validateCode, onClaimSuccess, claimStage, claimNonce, commitBlockNumber, currentBlock, previewGift, onChainStatus]);
 
   const resetForm = useCallback(() => {
     setGiftCodeInput('');
@@ -448,6 +395,10 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
     setPreviewGift(null);
     setOnChainStatus(null);
     setIsPending(false);
+    setClaimStage('idle');
+    setClaimNonce(null);
+    setCommitBlockNumber(null);
+    setCurrentBlock(null);
   }, []);
 
   // Hide 'Start New Claim' when the error indicates a user-cancelled transaction
@@ -693,21 +644,56 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
               </Box>
             )}
 
+            {/* ── Commit-reveal stage indicator ── */}
+            {claimStage === 'waiting' && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                <strong>Step 1 complete — reservation confirmed ✓</strong>
+                <br />
+                {currentBlock !== null && commitBlockNumber !== null && currentBlock > commitBlockNumber
+                  ? 'Ready! Click "Complete Claim" below to collect your assets.'
+                  : `Waiting for next Sepolia block (${(commitBlockNumber ?? 0) + 1})…`}
+                {txHash && (
+                  <div style={{ marginTop: 6 }}>
+                    <a href={`https://sepolia.etherscan.io/tx/${txHash}`} target="_blank" rel="noopener noreferrer" style={{ color: '#0B7EFF' }}>View reservation tx</a>
+                  </div>
+                )}
+              </Alert>
+            )}
+            {claimStage === 'revealing' && (
+              <Alert severity="info" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CircularProgress size={14} sx={{ mr: 1 }} />
+                Completing claim on-chain…
+              </Alert>
+            )}
+
             {(() => {
               const isAlreadyClaimed = previewGift?.status === 'CLAIMED' || !!(previewGift?.claimed || onChainStatus?.claimed || onChainStatus?.status === 'CLAIMED' || onChainStatus?.claimer);
               const isRefunded = previewGift?.status === 'REFUNDED' || onChainStatus?.status === 'REFUNDED';
 
-              console.log('Determining button state:', { isAlreadyClaimed, isRefunded, previewGift, onChainStatus });
-
               const isInvalidGift = !previewLoading && giftCodeInput.trim() && !previewGift && !isAlreadyClaimed && !isPending && !codeError ? true : codeError === 'Invalid Code';
-              const buttonDisabled = !!codeError || !giftCodeInput.trim() || !walletAddress || isPending || isAlreadyClaimed || isInvalidGift || isRefunded;
+
+              const isRevealReady = claimStage === 'waiting' &&
+                currentBlock !== null && commitBlockNumber !== null && currentBlock > commitBlockNumber;
+
+              const buttonDisabled =
+                claimStage === 'revealing' ||
+                (claimStage === 'committing') ||
+                (claimStage === 'idle' && (!!codeError || !giftCodeInput.trim() || !walletAddress || isPending || isAlreadyClaimed || isInvalidGift || isRefunded)) ||
+                (claimStage === 'waiting' && (!isRevealReady || isPending));
+
               const label = isAlreadyClaimed
                 ? 'Gift Already Claimed'
                 : isRefunded
                   ? 'Gift Refunded'
-                  : isInvalidGift
+                  : isInvalidGift && claimStage === 'idle'
                     ? 'Invalid Code'
-                    : (isPending ? 'Submitting...' : 'Claim Gift');
+                    : claimStage === 'committing'
+                      ? 'Reserving claim…'
+                      : claimStage === 'waiting'
+                        ? isRevealReady ? '🎁 Complete Claim (Step 2)' : 'Waiting for next block…'
+                        : claimStage === 'revealing'
+                          ? 'Completing claim…'
+                          : '🔒 Reserve & Claim';
 
               const buttonElement = (
                 <Button
@@ -716,7 +702,7 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                   onClick={handleSubmitClaim}
                   disabled={buttonDisabled}
                   startIcon={
-                    isPending ? (
+                    (claimStage === 'committing' || claimStage === 'revealing' || (claimStage === 'idle' && isPending)) ? (
                       <CircularProgress size={20} color="inherit" />
                     ) : (
                       <Box sx={{ width: 48 }}>
@@ -745,11 +731,11 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                     fontSize: '1.05rem',
                     fontWeight: 600,
                     textTransform: 'none',
-                    bgcolor: '#0B7EFF',
+                    bgcolor: (claimStage === 'waiting' && isRevealReady) ? '#00a86b' : '#0B7EFF',
                     color: '#fff',
                     boxShadow: 'none',
                     '&:hover': {
-                      bgcolor: '#0068ff',
+                      bgcolor: (claimStage === 'waiting' && isRevealReady) ? '#008f5c' : '#0068ff',
                       boxShadow: '0 4px 12px rgba(11, 126, 255, 0.3)',
                     },
                     '&:disabled': {

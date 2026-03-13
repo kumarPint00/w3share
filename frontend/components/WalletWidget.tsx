@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
 
 export default function WalletWidget() {
   const { provider, address, connect, disconnect, connectionRejected, clearConnectionRejection } = useWallet();
-  const connected = !!address;
+  const connected = !!address && !!provider; // require provider as well to avoid stale address display
   const [ethBal, setEthBal] = useState<number | undefined>(undefined);
   const [err, setErr] = useState<string | null>(null);
 
@@ -27,7 +27,9 @@ export default function WalletWidget() {
           setEthBal(undefined);
         }
       } catch (e) {
+        console.warn('[WalletWidget] Failed to fetch ETH balance:', e);
         setEthBal(undefined);
+        // Note: Don't set error here as this is a non-critical UI update
       }
     })();
   }, [provider, address]);
@@ -57,9 +59,33 @@ export default function WalletWidget() {
             } catch (e: any) {
               console.error('[WalletWidget] Connect error:', e);
               const errorMessage = e?.message || 'Failed to connect wallet';
+              
+              // Detect connection state errors - be more comprehensive with user cancellation detection
+              const isNetworkError = errorMessage.includes('network') || errorMessage.includes('connection');
+              const isTimeoutError = errorMessage.includes('timeout') || errorMessage.includes('time out');
+              const isProviderError = errorMessage.includes('provider') || errorMessage.includes('MetaMask') || errorMessage.includes('not found');
+              const isUserCanceled = /wallet connection canceled|user denied|rejected|user rejected|cancelled|user cancel|denied transaction|user reject/i.test(errorMessage) || e?.code === 4001;
+              
+              console.log('[WalletWidget] Error analysis:', { 
+                errorMessage, 
+                code: e?.code, 
+                isUserCanceled, 
+                isNetworkError, 
+                isTimeoutError, 
+                isProviderError 
+              });
+              
               // If user canceled the connect flow, do not show header text or duplicate toast
-              if (typeof errorMessage === 'string' && /wallet connection canceled|user denied|rejected/i.test(errorMessage)) {
+              // WalletContext should have already dispatched the bottom-left notification
+              if (isUserCanceled) {
+                console.log('[WalletWidget] User canceled connection - WalletContext should have shown toast notification');
                 // WalletContext already dispatched the bottom-left notification; no inline error required
+                // Clear any existing error state to ensure clean UI
+                setErr(null);
+              } else if (isNetworkError || isTimeoutError) {
+                setErr(`Network error: ${errorMessage}. Please check your internet connection and try again.`);
+              } else if (isProviderError) {
+                setErr(errorMessage);
               } else {
                 setErr(errorMessage);
               }
@@ -104,7 +130,14 @@ export default function WalletWidget() {
         variant="outlined"
         size="small"
         onClick={() => {
-          try { disconnect(); } catch {}
+          try {
+            disconnect();
+            console.log('[WalletWidget] Wallet disconnected successfully');
+          } catch (e) {
+            console.error('[WalletWidget] Error disconnecting wallet:', e);
+            // Force clear state even if cleanup fails
+            try { disconnect(); } catch {}
+          }
         }}
         sx={{ textTransform: 'none', borderRadius: 999, px: 2, py: 0.5 }}
       >

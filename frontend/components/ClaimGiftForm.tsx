@@ -27,7 +27,21 @@ import { GiftItem } from '@/types/gift';
 import { useSearchParams } from 'next/navigation';
 import { useWallet } from '@/context/WalletContext';
 
-const TOKEN_LOGO_MAP: Record<string, string> = {}; // add known token symbol -> image URL mappings here as needed
+const TOKEN_LOGO_MAP: Record<string, string> = {
+  // mainnet
+  'eth': 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
+  'ethereum': 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
+  'usdc': 'https://assets.coingecko.com/coins/images/6319/large/usdc.png',
+  'usdt': 'https://assets.coingecko.com/coins/images/325/large/Tether.png',
+  'dai': 'https://assets.coingecko.com/coins/images/9956/large/dai-multi-collateral-mcd.png',
+  'link': 'https://assets.coingecko.com/coins/images/877/large/chainlink-new-logo.png',
+  'weth': 'https://assets.coingecko.com/coins/images/279/large/ethereum.png',
+  'pepe': 'https://assets.coingecko.com/coins/images/29850/large/pepe-token.png',
+  'uni': 'https://assets.coingecko.com/coins/images/12504/large/uniswap-uni.png',
+  'uniswap': 'https://assets.coingecko.com/coins/images/12504/large/uniswap-uni.png',
+  'doge': 'https://assets.coingecko.com/coins/images/5/large/dogecoin.png',
+  'dogecoin': 'https://assets.coingecko.com/coins/images/5/large/dogecoin.png',
+};
 
 
 
@@ -137,22 +151,44 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
             decimals,
             formattedAmount: formatted,
             image: (() => {
-            let img = meta?.image || it.image;
-            try {
-              const sym = (meta?.symbol || it.symbol || it.name || '').toLowerCase();
-              if (!img && sym && TOKEN_LOGO_MAP?.[sym]) img = TOKEN_LOGO_MAP[sym];
-              // mismatch heuristic: if image contains another known token logo, prefer symbol logo
-              if (img && sym && TOKEN_LOGO_MAP?.[sym]) {
-                const imgLower = (img || '').toLowerCase();
-                const mismatched = Object.entries(TOKEN_LOGO_MAP).some(([k, v]) => k !== sym && imgLower.includes(v.toLowerCase()));
-                if (mismatched) {
-                  console.warn('[ClaimGiftForm] Replaced mismatched token image with symbol logo', { symbol: sym, previous: img, new: TOKEN_LOGO_MAP[sym] });
-                  img = TOKEN_LOGO_MAP[sym];
+              let img = meta?.image || it.image;
+              try {
+                const sym = (meta?.symbol || it.symbol || it.name || '').toLowerCase().trim();
+                
+                // First, try TOKEN_LOGO_MAP for known tokens
+                if (sym && TOKEN_LOGO_MAP?.[sym]) {
+                  return TOKEN_LOGO_MAP[sym];
                 }
+                
+                // If we have an image from meta or backend, validate it
+                if (img) {
+                  // Reject relative paths or very short paths that likely won't resolve
+                  if (img.startsWith('/tokens/') || img.length < 10) {
+                    // Try to find a CoinGecko replacement
+                    const logoUrl = TOKEN_LOGO_MAP[sym];
+                    if (logoUrl) return logoUrl;
+                    // Last resort: try generating a CoinGecko URL from symbol
+                    const sanitized = sym.replace(/[^a-z0-9-]/g, '');
+                    if (sanitized.length > 2) {
+                      return `https://assets.coingecko.com/coins/images/1/${sanitized}.png`;
+                    }
+                    return undefined; // Will fall back to Avatar default
+                  }
+                  // If it's a full URL, return it
+                  if (img.startsWith('http://') || img.startsWith('https://')) {
+                    return img;
+                  }
+                }
+                
+                // If no image found, try TOKEN_LOGO_MAP as fallback
+                if (sym && TOKEN_LOGO_MAP?.[sym]) {
+                  return TOKEN_LOGO_MAP[sym];
+                }
+              } catch (e) {
+                console.warn('[ClaimGiftForm] Error processing token image:', e);
               }
-            } catch (e) {}
-            return img;
-          })(),
+              return img; // Return whatever we have
+            })(),
           };
         });
         console.log('[ClaimGiftForm] Enriched preview items:', enrichedItems.map((i: any) => ({ symbol: i.symbol, name: i.name, image: i.image })));
@@ -360,6 +396,23 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
       setCommitBlockNumber(receipt!.blockNumber);
       setCurrentBlock(receipt!.blockNumber);
       setClaimStage('waiting');
+      // show toast for successful reservation
+      try {
+        const etherscan = `https://sepolia.etherscan.io/tx/${tx.hash}`;
+        window.dispatchEvent(new CustomEvent('wallet:notification', {
+          detail: {
+            message: (
+              <>
+                <div>Gift successfully reserved for you!</div>
+                <div>Complete the claim below to receive your gift.</div>
+                <div><a href={etherscan} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'underline' }}>View transaction on Etherscan.</a></div>
+              </>
+            ),
+            type: 'info',
+            duration: 12000,
+          }
+        }));
+      } catch {}
     } catch (error: any) {
       setTxRawError(error);
       setClaimStage('idle');
@@ -690,10 +743,10 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                     : claimStage === 'committing'
                       ? 'Reserving claim…'
                       : claimStage === 'waiting'
-                        ? isRevealReady ? '🎁 Complete Claim (Step 2)' : 'Waiting for next block…'
+                        ? isRevealReady ? '🎁 Complete Claim' : 'Waiting for next block…'
                         : claimStage === 'revealing'
                           ? 'Completing claim…'
-                          : '🔒 Reserve & Claim';
+                          : 'Reserve & Claim';
 
               const buttonElement = (
                 <Button
@@ -705,12 +758,12 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                     (claimStage === 'committing' || claimStage === 'revealing' || (claimStage === 'idle' && isPending)) ? (
                       <CircularProgress size={20} color="inherit" />
                     ) : (
-                      <Box sx={{ width: 48 }}>
+                      <Box sx={{ width: 56, display: 'flex', justifyContent: 'center' }}>
                         <BackgroundRemoverImage
                           src={buttonDisabled ? "/gift_icon_transparent.png" : "/gift_icon.png"}
                           alt="Gift"
-                          width={25}
-                          height={25}
+                          width={32}
+                          height={32}
                           threshold={255}
                           channelDiff={80}
                           crop
@@ -728,10 +781,10 @@ export default function ClaimGiftForm({ walletAddress, initialGiftId, initialGif
                     py: 2,
                     px: 4,
                     borderRadius: 3,
-                    fontSize: '1.05rem',
+                    fontSize: '1.2rem', // increased to better match icon
                     fontWeight: 600,
                     textTransform: 'none',
-                    bgcolor: (claimStage === 'waiting' && isRevealReady) ? '#00a86b' : '#0B7EFF',
+                    bgcolor: '#0B7EFF',
                     color: '#fff',
                     boxShadow: 'none',
                     '&:hover': {

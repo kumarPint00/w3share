@@ -157,6 +157,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       if (!addr) {
         throw new Error('No accounts returned by wallet provider');
       }
+      
+      // Validate address format
+      if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+        throw new Error(`Invalid account address format: ${addr}`);
+      }
+      
       console.log('[WalletContext] Account received:', addr);
       
       setProv(p);
@@ -171,8 +177,24 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         console.warn('[WalletContext] Error removing listeners:', e);
       }
 
-      onAccountsChanged.current = () => location.reload();
-      onChainChanged.current = () => location.reload();
+      // Setup account change listener with proper error handling
+      onAccountsChanged.current = (accs: string[]) => {
+        console.log('[WalletContext] accountsChanged event:', accs);
+        if (!Array.isArray(accs) || accs.length === 0) {
+          console.log('[WalletContext] Account disconnected');
+          setAddr(null);
+          setProv(null);
+        } else {
+          console.log('[WalletContext] Account changed to:', accs[0]);
+          location.reload();
+        }
+      };
+      
+      // Setup chain change listener
+      onChainChanged.current = (chainId: string) => {
+        console.log('[WalletContext] chainChanged event:', chainId);
+        location.reload();
+      };
 
       console.log('[WalletContext] Attaching event listeners...');
       raw.on?.('accountsChanged', onAccountsChanged.current);
@@ -191,12 +213,33 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Check if user rejected the request (MetaMask error code 4001)
-      if (
-        error?.code === 4001 ||
-        (typeof error?.message === 'string' && /rejected|user denied|user rejected/i.test(error.message))
-      ) {
-        console.log('[WalletContext] User rejected wallet connection');
+      // Check if user rejected the request (MetaMask error code 4001 or various rejection messages)
+      const isUserRejection = 
+        error?.code === 4001 || // Standard MetaMask rejection code
+        error?.code === 4000 || // Some wallets use 4000
+        (typeof error?.message === 'string' && (
+          /rejected|user denied|user rejected|cancelled|user cancel|denied|user reject/i.test(error.message) ||
+          /user.*cancel/i.test(error.message) ||
+          /cancel.*user/i.test(error.message) ||
+          error.message.includes('User rejected') ||
+          error.message.includes('User denied') ||
+          error.message.includes('User cancelled') ||
+          error.message.includes('User canceled') ||
+          error.message.includes('Transaction rejected') ||
+          error.message.includes('Request rejected')
+        ));
+
+      if (isUserRejection) {
+        console.log('[WalletContext] User rejected wallet connection', { code: error?.code, message: error?.message });
+        // Ensure any leftover state is cleared (required for disconnect->reconnect->cancel flows)
+        try {
+          setProv(null);
+          setAddr(null);
+          rawProvRef.current = null;
+          clearCachedConnectors();
+        } catch (e) {
+          console.warn('[WalletContext] Error clearing state after rejection:', e);
+        }
         setConnectionRejected(true);
         // auto-clear rejection state after a slightly longer timeout so the user can see the UI
         setTimeout(() => setConnectionRejected(false), 5000);
@@ -224,9 +267,18 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         'wagmi.store',
         'web3modal',
         'web3_onboard_last_wallet',
+        'selectedAddress',
       ];
-      keys.forEach((k) => localStorage.removeItem(k));
-    } catch {}
+      keys.forEach((k) => {
+        try {
+          localStorage.removeItem(k);
+        } catch (e) {
+          console.warn(`[WalletContext] Failed to remove localStorage key ${k}:`, e);
+        }
+      });
+    } catch (e) {
+      console.warn('[WalletContext] Error clearing cached connectors:', e);
+    }
   };
 
   const removeProviderListeners = () => {
@@ -235,17 +287,26 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       raw.removeListener?.('accountsChanged', onAccountsChanged.current as any);
       raw.removeListener?.('chainChanged', onChainChanged.current as any);
-    } catch {}
+    } catch (e) {
+      console.warn('[WalletContext] Error removing listeners:', e);
+    }
     onAccountsChanged.current = null;
     onChainChanged.current = null;
   };
 
   const disconnect = () => {
-    clearCachedConnectors();
-    removeProviderListeners();
+    console.log('[WalletContext] Disconnecting wallet...');
+    try {
+      clearCachedConnectors();
+      removeProviderListeners();
+    } catch (e) {
+      console.warn('[WalletContext] Error during disconnect cleanup:', e);
+    }
     setAddr(null);
     setProv(null);
     rawProvRef.current = null;
+    setConnectionRejected(false);
+    console.log('[WalletContext] Disconnect complete');
   };
 
   /* Suppress MetaMask/extension unhandled rejections (selectExtension, installHook, etc.)
@@ -280,25 +341,65 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         console.log('[WalletContext] Provider found, selectedAddress:', raw.selectedAddress);
         
         if (raw && raw.selectedAddress) {
-          console.log('[WalletContext] Auto-connecting with address:', raw.selectedAddress);
-          const p = new ethers.BrowserProvider(raw);
-          setProv(p);
-          setAddr(raw.selectedAddress);
-          rawProvRef.current = raw;
-
-          try {
-            raw.removeListener?.('accountsChanged', onAccountsChanged.current as any);
-            raw.removeListener?.('chainChanged', onChainChanged.current as any);
-          } catch (e) {
-            console.warn('[WalletContext] Error removing listeners on auto-connect:', e);
+          // Validate address format before using
+          if (!/^0x[a-fA-F0-9]{40}$/.test(raw.selectedAddress)) {
+            console.warn('[WalletContext] Invalid address format, skipping auto-connect:', raw.selectedAddress);
+            return;
           }
           
-          onAccountsChanged.current = () => location.reload();
-          onChainChanged.current = () => location.reload();
-          raw.on?.('accountsChanged', onAccountsChanged.current);
-          raw.on?.('chainChanged', onChainChanged.current);
-          
-          console.log('[WalletContext] Auto-connect successful!');
+          console.log('[WalletContext] Auto-connecting with address:', raw.selectedAddress);
+          try {
+            const p = new ethers.BrowserProvider(raw);
+            // Verify provider is working by getting network
+            try {
+              const network = await p.getNetwork();
+              console.log('[WalletContext] Connected to chain:', network.chainId, network.name);
+            } catch (networkErr) {
+              console.warn('[WalletContext] Failed to get network during auto-connect:', networkErr);
+              // Continue anyway, network might not be reachable yet
+            }
+            
+            setProv(p);
+            setAddr(raw.selectedAddress);
+            rawProvRef.current = raw;
+
+            try {
+              raw.removeListener?.('accountsChanged', onAccountsChanged.current as any);
+              raw.removeListener?.('chainChanged', onChainChanged.current as any);
+            } catch (e) {
+              console.warn('[WalletContext] Error removing listeners on auto-connect:', e);
+            }
+            
+            // Setup account change listener with proper error handling
+            onAccountsChanged.current = (accs: string[]) => {
+              console.log('[WalletContext] accountsChanged event during auto-connect:', accs);
+              if (!Array.isArray(accs) || accs.length === 0) {
+                console.log('[WalletContext] Account disconnected');
+                setAddr(null);
+                setProv(null);
+              } else {
+                console.log('[WalletContext] Account changed to:', accs[0]);
+                location.reload();
+              }
+            };
+            
+            // Setup chain change listener
+            onChainChanged.current = (chainId: string) => {
+              console.log('[WalletContext] chainChanged event during auto-connect:', chainId);
+              location.reload();
+            };
+            
+            raw.on?.('accountsChanged', onAccountsChanged.current);
+            raw.on?.('chainChanged', onChainChanged.current);
+            
+            console.log('[WalletContext] Auto-connect successful!');
+          } catch (connErr) {
+            console.warn('[WalletContext] Error during auto-connect setup:', connErr);
+            // Recover by clearing state
+            setAddr(null);
+            setProv(null);
+            rawProvRef.current = null;
+          }
         }
       } catch (error) {
         console.error('[WalletContext] Auto-connect error:', error);

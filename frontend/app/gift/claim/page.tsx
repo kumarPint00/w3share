@@ -287,7 +287,7 @@ export default function ClaimGiftPage() {
                   mb: 4
                 }}
                 >
-                Enter your Secret Gift Code to unlock and claim your gift securely onchain.
+                Enter your Secret Gift Code to unlock and claim your gift securely onchain. Claiming is a two‑step process: first reserve your claim, then complete it below. The gift will be reserved first to secure it, then you can complete the claim.
               </Typography>
             </Box>
 

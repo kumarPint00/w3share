@@ -116,6 +116,15 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
         const coingeckoId = staticToken?.coingeckoId;
         const price = coingeckoId ? (priceMap?.[coingeckoId]?.usd ?? 0) : 0;
         
+        // Use CoinGecko image if available from staticToken, fallback to backend logoURI, final fallback to placeholder
+        let imageUrl = staticToken?.image || b.logoURI || '/gift-icon.png';
+        
+        // If no image from static token, try to derive from CoinGecko via coingeckoId
+        if (!staticToken?.image && coingeckoId) {
+          // CoinGecko has a standard image URL pattern
+          imageUrl = `https://assets.coingecko.com/coins/images/1/${coingeckoId}.png` || imageUrl;
+        }
+        
         return {
           id: `${(b.contractAddress || 'native').toLowerCase()}-${chainId}`,
           name: staticToken?.name || b.name || b.symbol || 'Unknown Token',
@@ -125,7 +134,7 @@ async function fetchWalletTokens(provider: ethers.BrowserProvider, address: stri
           chainId,
           balance: balance,
           usd: balance * (price || 0),
-          image: staticToken?.image || b.logoURI || '/gift-icon.png',
+          image: imageUrl,
           type: 'ERC20',
           priceUsd: price || 0,
         } as Token;

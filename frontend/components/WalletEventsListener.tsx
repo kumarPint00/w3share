@@ -30,17 +30,24 @@ export default function WalletEventsListener() {
       const detail = e?.detail || {};
       const message = detail.message || '';
       const type: Severity = detail.type === 'error' ? 'error' : detail.type === 'warning' ? 'warning' : 'info';
-      const duration = computeDuration(message, detail.duration);
+      const duration = computeDuration(typeof message === 'string' ? message : undefined, detail.duration);
 
       // Deduplicate identical notifications: if the same normalized message is already shown, ignore the new one
-      const normalized = (message || '').trim().toLowerCase();
-      const currentlyShown = (msg || '').trim().toLowerCase();
+      const normalized = (typeof message === 'string' ? message : '')
+        .trim()
+        .toLowerCase();
+      const currentlyShown = (typeof msg === 'string' ? msg : '')
+        .trim()
+        .toLowerCase();
       if (open && normalized && normalized === currentlyShown) {
         return; // duplicate message - ignore
       }
 
-      // Force all notifications to render as error (opaque pink filled)
-      const resolvedSeverity: Severity = 'error';
+      // Choose severity: info for normal, warning for cancellations, error for others
+      let resolvedSeverity: Severity = type;
+      if (type !== 'error' && typeof message === 'string' && message.toLowerCase().includes('canceled')) {
+        resolvedSeverity = 'warning';
+      }
 
       setMsg(message);
       setSeverity(resolvedSeverity);
@@ -83,7 +90,17 @@ export default function WalletEventsListener() {
           </IconButton>
         }
       >
-        {msg}
+        {/* allow ReactNode or string with newlines */}
+        {typeof msg === 'string' ? (
+          msg.split('\n').map((line, idx) => (
+            <span key={idx}>
+              {line}
+              {idx < msg.split('\n').length - 1 && <br />}
+            </span>
+          ))
+        ) : (
+          msg
+        )}
       </Alert>
     </Snackbar>
   );
